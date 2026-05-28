@@ -446,6 +446,337 @@ def change_language(lang):
     ]
 
 
+CUSTOM_CSS = """
+/* ========== 全局基础 ========== */
+* {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif !important;
+}
+
+.gradio-container {
+    background: linear-gradient(135deg, #f5f7fa 0%, #e4e8f0 50%, #e8ecf4 100%) !important;
+    min-height: 100vh;
+    padding: 16px 24px 32px !important;
+}
+
+/* ========== 顶部标题区域 ========== */
+.gradio-container > .header,
+.gradio-container > div:first-child {
+    text-align: center;
+}
+
+.gradio-container h1 {
+    font-size: 2rem !important;
+    font-weight: 700 !important;
+    color: #1a1a2e !important;
+    margin-bottom: 4px !important;
+    letter-spacing: 0.5px;
+}
+
+.gradio-container h1 + p,
+.gradio-container h1 + div p {
+    font-size: 1rem !important;
+    color: #6b7280 !important;
+    margin-bottom: 16px !important;
+}
+
+/* ========== Tab 栏 ========== */
+.tabs > .tab-nav {
+    background: rgba(255, 255, 255, 0.72) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    border-radius: 14px !important;
+    padding: 6px !important;
+    margin-bottom: 16px !important;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06) !important;
+    border: 1px solid rgba(255, 255, 255, 0.6) !important;
+}
+
+.tabs > .tab-nav > button {
+    border-radius: 10px !important;
+    padding: 10px 20px !important;
+    font-weight: 500 !important;
+    font-size: 0.92rem !important;
+    color: #64748b !important;
+    background: transparent !important;
+    border: none !important;
+    transition: all 0.3s ease !important;
+    position: relative;
+}
+
+.tabs > .tab-nav > button:hover {
+    color: #1e293b !important;
+    background: rgba(255, 255, 255, 0.5) !important;
+}
+
+.tabs > .tab-nav > button.selected {
+    background: #ffffff !important;
+    color: #1e293b !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
+    font-weight: 600 !important;
+}
+
+/* ========== Tab 内容面板 ========== */
+.tabitem {
+    background: rgba(255, 255, 255, 0.65) !important;
+    backdrop-filter: blur(16px) !important;
+    -webkit-backdrop-filter: blur(16px) !important;
+    border-radius: 16px !important;
+    padding: 24px !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06) !important;
+    border: 1px solid rgba(255, 255, 255, 0.5) !important;
+}
+
+/* ========== 按钮 ========== */
+button.primary,
+button.lg.primary {
+    background: linear-gradient(135deg, #6366f1 0%, #818cf8 100%) !important;
+    color: #fff !important;
+    border: none !important;
+    border-radius: 10px !important;
+    font-weight: 600 !important;
+    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.3) !important;
+    transition: all 0.3s ease !important;
+    padding: 10px 24px !important;
+}
+
+button.primary:hover,
+button.lg.primary:hover {
+    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.45) !important;
+    transform: translateY(-1px) !important;
+}
+
+button.secondary,
+button.lg.secondary {
+    background: rgba(255, 255, 255, 0.85) !important;
+    color: #475569 !important;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 10px !important;
+    font-weight: 500 !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+    transition: all 0.3s ease !important;
+    padding: 10px 24px !important;
+}
+
+button.secondary:hover,
+button.lg.secondary:hover {
+    background: #ffffff !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+}
+
+button.stop,
+button.lg.stop {
+    background: linear-gradient(135deg, #ef4444 0%, #f87171 100%) !important;
+    color: #fff !important;
+    border: none !important;
+    border-radius: 10px !important;
+    font-weight: 600 !important;
+    box-shadow: 0 4px 14px rgba(239, 68, 68, 0.3) !important;
+    transition: all 0.3s ease !important;
+}
+
+button.stop:hover,
+button.lg.stop:hover {
+    box-shadow: 0 6px 20px rgba(239, 68, 68, 0.45) !important;
+    transform: translateY(-1px) !important;
+}
+
+/* ========== 输入框 / Textbox ========== */
+textarea,
+input[type="text"] {
+    border-radius: 10px !important;
+    border: 1.5px solid #e2e8f0 !important;
+    background: rgba(255, 255, 255, 0.9) !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+    transition: all 0.3s ease !important;
+    padding: 10px 14px !important;
+}
+
+textarea:focus,
+input[type="text"]:focus {
+    border-color: #818cf8 !important;
+    box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.15), 0 2px 8px rgba(0, 0, 0, 0.06) !important;
+}
+
+/* ========== 下拉框 Dropdown ========== */
+.gradio-dropdown {
+    border-radius: 10px !important;
+}
+
+.gradio-dropdown > .wrap > .secondary-wrap > .single-select {
+    border-radius: 10px !important;
+    border: 1.5px solid #e2e8f0 !important;
+    background: rgba(255, 255, 255, 0.9) !important;
+}
+
+/* ========== 图片 / 视频 上传 & 预览区域 ========== */
+.image-upload-area,
+.video-upload-area,
+.upload-container {
+    border-radius: 12px !important;
+    overflow: hidden !important;
+}
+
+.image-container,
+.video-container {
+    border-radius: 12px !important;
+    overflow: hidden !important;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06) !important;
+}
+
+/* 上传区域虚线框 */
+.upload-box {
+    border-radius: 12px !important;
+    border: 2px dashed #cbd5e1 !important;
+    background: rgba(248, 250, 252, 0.8) !important;
+    transition: all 0.3s ease !important;
+}
+
+.upload-box:hover {
+    border-color: #818cf8 !important;
+    background: rgba(248, 250, 252, 1) !important;
+}
+
+/* ========== Chatbot 消息气泡 ========== */
+.chatbot .message {
+    border-radius: 16px !important;
+    padding: 12px 16px !important;
+    margin: 6px 0 !important;
+    line-height: 1.6 !important;
+    max-width: 80% !important;
+    word-wrap: break-word !important;
+}
+
+.chatbot .user {
+    background: linear-gradient(135deg, #6366f1 0%, #818cf8 100%) !important;
+    color: #fff !important;
+    margin-left: auto !important;
+    border-bottom-right-radius: 4px !important;
+}
+
+.chatbot .bot,
+.chatbot .assistant {
+    background: rgba(255, 255, 255, 0.92) !important;
+    color: #1e293b !important;
+    margin-right: auto !important;
+    border-bottom-left-radius: 4px !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06) !important;
+}
+
+.chatbot .message-wrap {
+    padding: 8px 12px !important;
+}
+
+/* Chatbot 容器 */
+.chatbot {
+    border-radius: 14px !important;
+    border: 1px solid #e2e8f0 !important;
+    background: rgba(248, 250, 252, 0.6) !important;
+    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.03) !important;
+}
+
+/* 快捷问题小按钮 */
+.quick-question-btn,
+button.sm {
+    border-radius: 20px !important;
+    font-size: 0.82rem !important;
+    padding: 6px 16px !important;
+    background: rgba(255, 255, 255, 0.85) !important;
+    border: 1px solid #e2e8f0 !important;
+    color: #6366f1 !important;
+    transition: all 0.3s ease !important;
+}
+
+button.sm:hover {
+    background: #eef2ff !important;
+    border-color: #818cf8 !important;
+    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.12) !important;
+}
+
+/* ========== 摄像头 Tab 启动/停止按钮行 ========== */
+#component-0 .row {
+    gap: 12px !important;
+}
+
+/* ========== 历史记录 Tab ========== */
+/* Radio 列表 */
+.gradio-radio .wrap,
+.gradio-radio label {
+    border-radius: 10px !important;
+}
+
+.gradio-radio input[type="radio"] + span,
+.gradio-radio .radio-item {
+    border-radius: 10px !important;
+    padding: 10px 14px !important;
+    margin-bottom: 6px !important;
+    background: rgba(255, 255, 255, 0.7) !important;
+    border: 1px solid #e8ecf0 !important;
+    transition: all 0.3s ease !important;
+}
+
+.gradio-radio input[type="radio"]:checked + span,
+.gradio-radio .radio-item.selected {
+    background: #eef2ff !important;
+    border-color: #818cf8 !important;
+    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.12) !important;
+}
+
+/* ========== 通用面板卡片化 ========== */
+.block,
+.gradio-group,
+.gradio-box {
+    border-radius: 12px !important;
+}
+
+/* ========== Label 标签美化 ========== */
+label > .label-wrap > span,
+.label-wrap > .label-text {
+    font-weight: 600 !important;
+    color: #334155 !important;
+    font-size: 0.88rem !important;
+}
+
+/* ========== 滚动条美化 ========== */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
+/* ========== 图片/视频结果区域圆角 ========== */
+.preview-container,
+.image-preview,
+video {
+    border-radius: 12px !important;
+}
+
+/* ========== 响应式微调 ========== */
+@media (max-width: 768px) {
+    .gradio-container {
+        padding: 8px 12px 16px !important;
+    }
+    .tabitem {
+        padding: 16px !important;
+    }
+    .tabs > .tab-nav > button {
+        padding: 8px 12px !important;
+        font-size: 0.82rem !important;
+    }
+}
+"""
+
 with gr.Blocks(title=t("app.title")) as demo:
     header_title = gr.Markdown(f"# {t('app.title')}")
     header_subtitle = gr.Markdown(t("app.subtitle"))
@@ -619,5 +950,6 @@ if __name__ == "__main__":
         server_name=config.APP_HOST,
         server_port=config.APP_PORT,
         share=config.APP_SHARE,
-        theme=gr.themes.Soft()
+        theme=gr.themes.Soft(),
+        css=CUSTOM_CSS,
     )
