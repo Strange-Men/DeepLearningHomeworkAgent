@@ -75,18 +75,38 @@ class HistoryManager:
         return dict(row) if row else None
 
     def delete_record(self, record_id):
-        """删除单条记录。"""
+        """删除单条记录及其磁盘文件。"""
+        record = self.get_record_by_id(record_id)
+        file_deleted = False
+        if record and record.get("result_path"):
+            result_path = record["result_path"]
+            if os.path.exists(result_path):
+                try:
+                    os.remove(result_path)
+                    file_deleted = True
+                except OSError as e:
+                    print(f"[WARNING] 删除文件失败 {result_path}: {e}")
         conn = self._get_conn()
         conn.execute("DELETE FROM detection_history WHERE id = ?", (record_id,))
         conn.commit()
         conn.close()
-        return True
+        return file_deleted
 
     def clear_all(self):
-        """清空所有记录并重置自增ID。"""
+        """清空所有记录并重置自增ID，同时删除磁盘文件。"""
+        records = self.get_records(limit=999999)
+        deleted_count = 0
+        for record in records:
+            result_path = record.get("result_path")
+            if result_path and os.path.exists(result_path):
+                try:
+                    os.remove(result_path)
+                    deleted_count += 1
+                except OSError as e:
+                    print(f"[WARNING] 删除文件失败 {result_path}: {e}")
         conn = self._get_conn()
         conn.execute("DELETE FROM detection_history")
         conn.execute("DELETE FROM sqlite_sequence WHERE name='detection_history'")
         conn.commit()
         conn.close()
-        return True
+        return deleted_count

@@ -16,23 +16,9 @@ except ImportError:
     )
     import config
 
-logger = logging.getLogger(__name__)
+from core.i18n import t
 
-SYSTEM_PROMPT = (
-    "You are a professional gesture recognition system Q&A assistant. "
-    "Your responsibilities:\n"
-    "1. Answer questions about this gesture recognition system "
-    "(features, usage, technical principles)\n"
-    "2. Answer technical questions related to gesture recognition, "
-    "YOLO object detection, and CNN\n"
-    "3. Keep answers concise, accurate, and well-structured\n\n"
-    "Constraints:\n"
-    "- Do not fabricate features the system does not have\n"
-    "- Do not answer unrelated open-ended questions "
-    "(coding, translation, chitchat)\n"
-    "- If a question is beyond your knowledge, say so honestly\n"
-    "- Answer in Chinese, use Markdown formatting when appropriate"
-)
+logger = logging.getLogger(__name__)
 
 
 def _sanitize_error(error_msg: str) -> str:
@@ -74,12 +60,66 @@ class LLMLayer:
         """记录成功，重置失败计数。"""
         self._consecutive_failures = 0
 
-    def _build_messages(self, question):
+    def _build_messages(self, question, lang=None):
         """构建 API 请求的 messages 列表。"""
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        system_content = t("llm.system_prompt")
+        if lang:
+            lang_name = config.LANG_NAMES.get(lang, lang)
+            lang_instruction = t("llm.must_respond_in", lang=lang_name)
+            system_content = f"{system_content}\n\n{lang_instruction}"
+        messages = [{"role": "system", "content": system_content}]
         # 加入对话历史
         messages.extend(list(self._history))
         # 加入当前问题
+        messages.append({"role": "user", "content": question})
+        return messages
+
+    @staticmethod
+    def _is_valid_context(context):
+        """判断检索上下文是否包含有效数据。
+
+        仅检查是否为空字符串或纯空白。
+        不做关键词过滤——RAG prompt 已指导 LLM 在上下文不足时
+        用通用知识回答，因此即使上下文很短也应传入，由 LLM 自行判断。
+        """
+        if not context or not context.strip():
+            return False
+        return True
+
+    def _build_rag_messages(self, question, context, lang=None):
+        """构建带检索上下文的 RAG messages 列表。
+
+        Args:
+            question: 用户问题
+            context: 检索工具返回的上下文文本
+            lang: 目标回答语言代码
+
+        Returns:
+            list: API messages 列表
+        """
+        # 检索上下文为空或无效时，使用普通模式（让 LLM 用通用知识回答）
+        if not self._is_valid_context(context):
+            logger.debug("Context empty or invalid, using normal mode")
+            return self._build_messages(question, lang=lang)
+
+        # 截断过长的上下文
+        if len(context) > config.AGENT_RAG_MAX_CONTEXT_LEN:
+            context = (
+                context[:config.AGENT_RAG_MAX_CONTEXT_LEN]
+                + t("llm.context_truncated")
+            )
+
+        system_content = (
+            f"{t('llm.rag_system_prompt')}\n\n"
+            f"{t('llm.context_header')}\n{context}\n"
+            f"{t('llm.context_footer')}"
+        )
+        if lang:
+            lang_name = config.LANG_NAMES.get(lang, lang)
+            lang_instruction = t("llm.must_respond_in", lang=lang_name)
+            system_content = f"{system_content}\n\n{lang_instruction}"
+        messages = [{"role": "system", "content": system_content}]
+        messages.extend(list(self._history))
         messages.append({"role": "user", "content": question})
         return messages
 
@@ -93,7 +133,7 @@ class LLMLayer:
         payload = {
             "model": config.MIMO_MODEL_NAME,
             "messages": messages,
-            "temperature": 0.3,
+            "temperature": 0,
             "max_tokens": 512,
             "stream": False,
         }
@@ -102,7 +142,8 @@ class LLMLayer:
         safe_url = url
         logger.debug("API request -> POST %s", safe_url)
         logger.debug(
-            "API request headers -> Content-Type: %s, Authorization: Bearer ***",
+            "API request headers -> Content-Type: %s, "
+            "Authorization: Bearer ***",
             headers["Content-Type"],
         )
 
@@ -134,11 +175,13 @@ class LLMLayer:
         content = data["choices"][0]["message"]["content"]
         return content.strip()
 
-    def ask(self, question):
+    def ask(self, question, context=None, lang=None):
         """调用 LLM 回答问题，含重试和熔断逻辑。
 
         Args:
             question: 用户问题
+            context: 可选的检索上下文，传入时使用 RAG 模式
+            lang: 目标回答语言代码
 
         Returns:
             str: LLM 回答，失败时返回 None
@@ -150,7 +193,10 @@ class LLMLayer:
             logger.debug("Circuit breaker is open, skipping LLM call")
             return None
 
-        messages = self._build_messages(question)
+        if context and config.AGENT_RAG_ENABLED:
+            messages = self._build_rag_messages(question, context, lang=lang)
+        else:
+            messages = self._build_messages(question, lang=lang)
         last_error = None
 
         for attempt in range(config.AGENT_LLM_MAX_RETRIES + 1):
@@ -251,6 +297,9 @@ if __name__ == "__main__":
 
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
+
+    from core.i18n import init as i18n_init
+    i18n_init()
 
     print(f"[INFO] MIMO_BASE_URL = {config.MIMO_BASE_URL}")
     print(f"[INFO] MIMO_MODEL_NAME = {config.MIMO_MODEL_NAME}")

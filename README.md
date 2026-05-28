@@ -11,8 +11,10 @@
 | 图片识别 | 已完成 | 上传图片，返回标注结果、手势类别与置信度 |
 | 视频识别 | 已完成 | 逐帧检测，输出带标注框的视频（自动转码 H.264 MP4） |
 | 摄像头实时识别 | 已完成 | 实时捕获摄像头画面，显示检测框和 FPS |
-| Agent 问答 | 已完成 | 双层混合架构（规则层 TF-IDF + LLM 层 MiMo API），支持 10 类问题，含意图路由与降级兜底 |
+| Agent 问答 | 已完成 | 双层混合架构（规则层 TF-IDF + LLM 层 MiMo API），支持意图路由与降级兜底，集成 RAG 工具检索 |
 | 历史记录 | 已完成 | SQLite 存储，支持查看列表、查看详情、删除单条、清空全部 |
+| 多语言支持 | 已完成 | 国际化（i18n）支持简体中文、繁體中文、English、Français，UI 和知识库按语言切换 |
+| RAG 工具检索 | 已完成 | Agent 集成 4 个 RAG 工具：查询历史记录、查询模型指标、搜索源码、搜索知识库 |
 
 ---
 
@@ -25,6 +27,10 @@
 | 前端界面 | Gradio | >= 4.0 |
 | 图像处理 | OpenCV | >= 4.8 |
 | 数据库 | SQLite | Python 内置 |
+| 中文分词 | jieba | >= 0.42 |
+| 文本向量化 | scikit-learn (TF-IDF) | >= 1.3 |
+| 环境变量 | python-dotenv | >= 1.0 |
+| HTTP 请求 | requests | >= 2.31 |
 | 代码规范 | flake8 + black | 最新稳定版 |
 
 ---
@@ -32,38 +38,48 @@
 ## 项目结构
 
 ```
-├── app.py                 # 主入口（Gradio 界面，5 个 Tab 页）
-├── config.py              # 全局配置（模型路径、阈值、端口等）
-├── core/                  # 核心业务逻辑
-│   ├── detector.py        #   YOLO 检测引擎（detect_image / detect_frame）
-│   ├── agent.py           #   双层混合 Agent（规则层 + LLM 层）
-│   ├── intent_router.py   #   意图路由器（规则/LLM 分流）
-│   ├── llm_layer.py       #   LLM 问答层（MiMo API 封装）
-│   ├── text_preprocessor.py #  文本预处理（jieba 分词 + 去停用词）
-│   └── history.py         #   历史记录管理（SQLite CRUD）
-├── data/                  # 数据文件
-│   ├── knowledge_base.json #  Agent 问答知识库（10 组 QA 对 + 同义词）
-│   ├── stopwords.txt       #  中文停用词表
-│   ├── custom_dict.txt     #  jieba 自定义词典（手势识别领域）
-│   ├── history.db         #  SQLite 数据库（自动创建）
-│   └── history_videos/    #  视频识别结果存储
-├── utils/                 # 工具函数
-│   ├── image_utils.py     #  PIL ↔ OpenCV 格式转换
-│   └── video_utils.py     #  视频信息获取
-├── results/               # 图片识别结果存储
-├── runs/                  # 模型训练产物
+├── app.py                   # 主入口（Gradio 界面，5 个 Tab 页）
+├── config.py                # 全局配置（模型路径、阈值、端口等）
+├── core/                    # 核心业务逻辑
+│   ├── detector.py          #   YOLO 检测引擎（detect_image / detect_frame）
+│   ├── agent.py             #   双层混合 Agent（规则层 + LLM 层）
+│   ├── intent_router.py     #   意图路由器（规则/LLM 分流）
+│   ├── llm_layer.py         #   LLM 问答层（MiMo API 封装）
+│   ├── text_preprocessor.py #   文本预处理（jieba 分词 + 去停用词）
+│   ├── i18n.py              #   国际化模块（多语言 UI 翻译）
+│   ├── tools.py             #   RAG 检索工具（历史/模型指标/源码/知识库查询）
+│   └── history.py           #   历史记录管理（SQLite CRUD）
+├── data/                    # 数据文件
+│   ├── knowledge_base.json       #  中文问答知识库
+│   ├── knowledge_base_en.json    #  英文问答知识库
+│   ├── knowledge_base_fr.json    #  法文问答知识库
+│   ├── knowledge_base_zh-TW.json #  繁体中文问答知识库
+│   ├── stopwords.txt             #  中文停用词表
+│   ├── custom_dict.txt           #  jieba 自定义词典（手势识别领域）
+│   ├── history.db                #  SQLite 数据库（自动创建）
+│   └── history_videos/           #  视频识别结果存储
+├── locales/                 # UI 翻译文件
+│   ├── zh-CN.json           #   简体中文
+│   ├── zh-TW.json           #   繁體中文
+│   ├── en.json              #   English
+│   └── fr.json              #   Français
+├── utils/                   # 工具函数
+│   ├── image_utils.py       #   PIL ↔ OpenCV 格式转换
+│   └── video_utils.py       #   视频信息获取
+├── results/                 # 图片识别结果存储
+├── runs/                    # 模型训练产物
 │   └── detect/train4/weights/best.pt  # 训练好的 YOLOv8n 权重
-├── libs/                  # 第三方动态库（OpenH264）
-├── specs/                 # 规格文档
-│   └── SPEC.md            #  功能规格书（Gherkin 用户故事）
-├── requirements.txt       # Python 依赖
-├── .env.example           # API 密钥模板（提交到 Git）
-├── .env                   # 实际密钥（不提交，本地使用）
-├── .gitignore             # Git 排除规则
-├── .flake8                # flake8 配置
-├── test_mimo_api.py       # MiMo API 连通性测试脚本
-├── CLAUDE.md              # 项目总控规则
-└── README.md              # 本文件
+├── libs/                    # 第三方动态库（OpenH264）
+├── specs/                   # 规格文档
+│   └── SPEC.md              #   功能规格书（Gherkin 用户故事）
+├── requirements.txt         # Python 依赖
+├── .env.example             # API 密钥模板（提交到 Git）
+├── .env                     # 实际密钥（不提交，本地使用）
+├── .gitignore               # Git 排除规则
+├── .flake8                  # flake8 配置
+├── test_mimo_api.py         # MiMo API 连通性测试脚本
+├── CLAUDE.md                # 项目总控规则
+└── README.md                # 本文件
 ```
 
 ---
@@ -120,11 +136,14 @@ python app.py
 
 ## 开发进度
 
-**MVP 已完成**，核心功能全部可用。Agent 问答已升级为双层混合架构：
+**v1.1 已完成**，在 MVP 基础上新增多语言支持和 RAG 工具检索：
 
 - 图片/视频/摄像头三种识别模式均已跑通
 - Agent 问答采用双层混合架构：规则层（TF-IDF + 关键词融合）+ LLM 层（MiMo API）
 - 意图路由器根据置信度自动分流，LLM 不可用时自动降级到规则层
+- Agent 集成 RAG 工具检索：支持查询历史记录、模型训练指标、源码搜索、知识库搜索
+- 国际化（i18n）支持 4 种语言：简体中文、繁體中文、English、Français
+- 每种语言配有独立知识库和 UI 翻译文件，支持运行时切换
 - API 密钥通过 `.env` 文件管理，代码中无硬编码
 - 历史记录完整实现 CRUD 操作
 - 视频输出自动转码为浏览器可播放格式

@@ -1,0 +1,75 @@
+{
+  "qa_pairs": [
+    {
+      "category": "System Introduction",
+      "keywords": ["system", "introduction", "what", "functionality", "overview"],
+      "synonyms": ["what is this", "what does it do", "purpose", "features", "about"],
+      "question": "What is this system?",
+      "answer": "This is a real-time gesture recognition system based on YOLOv8n, supporting 10 types of gestures. The system provides three recognition modes: image recognition, video recognition, and real-time camera recognition. It also integrates an intelligent Q&A Agent to help you understand system features and usage."
+    },
+    {
+      "category": "Gesture List",
+      "keywords": ["gesture", "support", "which", "category", "type", "recognize", "letter", "number", "list"],
+      "synonyms": ["can detect", "able to recognize", "gesture type", "gesture kind", "gesture classification", "what gestures", "how many types"],
+      "question": "Which gestures are supported?",
+      "answer": "The system supports 10 gesture categories:\n1. Letter A\n2. Letter D\n3. Letter I\n4. Letter L\n5. Letter V\n6. Letter W\n7. Letter Y\n8. Number 5\n9. Number 7\n10. I love you gesture\n\nThese gestures cover commonly used letters and numbers from ASL (American Sign Language)."
+    },
+    {
+      "category": "Usage Tips",
+      "keywords": ["accuracy", "improve", "tips", "how to use", "usage", "suggestions", "optimize", "better"],
+      "synonyms": ["precision", "accuracy rate", "better results", "enhance", "improve", "boost"],
+      "question": "How to improve recognition accuracy?",
+      "answer": "Tips for improving recognition accuracy:\n1. **Adequate lighting**: Ensure even lighting on the gesture area, avoid too dark or overexposed conditions\n2. **Simple background**: Solid color backgrounds work best, avoid complex backgrounds\n3. **Clear gestures**: Keep gestures stable, avoid fast movements\n4. **Optimal distance**: Gestures occupying 1/4 to 1/2 of the frame work best\n5. **Front-facing angle**: Face the camera directly, avoid large tilt angles\n6. **Avoid occlusion**: Ensure fingers are fully visible, avoid mutual occlusion"
+    },
+    {
+      "category": "YOLO Principles",
+      "keywords": ["YOLO", "principle", "algorithm", "how it works", "detection principle", "object detection"],
+      "synonyms": ["working principle", "mechanism", "how it runs", "detection algorithm", "yolo algorithm"],
+      "question": "What is YOLO?",
+      "answer": "YOLO (You Only Look Once) is a real-time object detection algorithm:\n\n**Core idea**: Converts the object detection task into a single regression problem, predicting the positions and categories of multiple objects in one forward pass.\n\n**How it works**:\n1. Divides the input image into an SxS grid\n2. Each grid cell predicts B bounding boxes and confidence scores\n3. Simultaneously predicts class probabilities for each box\n4. Filters overlapping boxes through Non-Maximum Suppression (NMS)\n\n**Advantages**: Fast (real-time detection), global reasoning (reduced background false positives), strong generalization\n\nThis system uses YOLOv8n (nano version), achieving a good balance between speed and accuracy."
+    },
+    {
+      "category": "CNN Concepts",
+      "keywords": ["CNN", "convolution", "neural network", "deep learning", "feature extraction", "network structure"],
+      "synonyms": ["convolutional network", "convolutional neural", "cnn", "neuron", "network model", "deep network"],
+      "question": "What is CNN?",
+      "answer": "CNN (Convolutional Neural Network) is a deep learning model specialized for processing grid-structured data:\n\n**Core components**:\n1. **Convolutional layer**: Uses filters to extract local features (edges, textures, etc.)\n2. **Pooling layer**: Reduces feature map dimensions, decreasing computation\n3. **Fully connected layer**: Integrates features for classification or regression\n\n**Characteristics**:\n- Local connections: Each neuron only focuses on local regions\n- Weight sharing: The same filter shares parameters across the entire image\n- Translation invariance: Can recognize the same features at different positions\n\nYOLOv8's backbone network is built on CNN for extracting image features for object detection."
+    },
+    {
+      "category": "Object Detection",
+      "keywords": ["object detection", "detection", "bounding box", "confidence", "NMS"],
+      "synonyms": ["object recognition", "box selection", "recognition frame", "detection frame", "nms"],
+      "question": "What is object detection?",
+      "answer": "Object detection is a core task in computer vision:\n\n**Goal**: Locate and identify objects of interest in an image, outputting the class and position (bounding box) of each object.\n\n**Output information**:\n- Bounding box coordinates (x1, y1, x2, y2)\n- Class label (e.g., Letter A, Number 5)\n- Confidence score (between 0-1)\n\n**Evaluation metrics**:\n- mAP (mean Average Precision): Measures detection accuracy\n- FPS (Frames Per Second): Measures detection speed\n\nThis system achieves mAP@0.5 over 95% with detection speeds of 30+ FPS."
+    },
+    {
+      "category": "Model Info",
+      "keywords": ["model", "training", "dataset", "accuracy", "parameters", "YOLOv8n", "size", "performance"],
+      "synonyms": ["model parameters", "model size", "training data", "model performance", "model accuracy", "v8n"],
+      "question": "What is the model information?",
+      "answer": "Model technical information:\n\n- **Architecture**: YOLOv8n (nano version)\n- **Input size**: 640x640 pixels\n- **Number of classes**: 10 gesture types\n- **Confidence threshold**: 0.25\n- **Model size**: ~6MB\n- **Training framework**: Ultralytics 8.x\n- **Inference backend**: PyTorch\n\nYOLOv8n is the most lightweight version in the YOLO series, suitable for real-time applications, maintaining high accuracy with very fast inference speed."
+    },
+    {
+      "category": "Camera Issues",
+      "keywords": ["camera", "webcam", "cannot open", "not working", "black screen", "no image"],
+      "synonyms": ["camera broken", "camera not working", "camera won't open", "can't see image", "no picture"],
+      "question": "What to do if the camera cannot be opened?",
+      "answer": "Troubleshooting camera issues:\n\n1. **Check connection**: Ensure the camera is properly connected to your computer\n2. **Permission settings**: Check system privacy settings to allow camera access for the application\n3. **Close other apps**: Close other programs using the camera (e.g., WeChat, Zoom)\n4. **Update drivers**: Update camera drivers to the latest version\n5. **Device Manager**: Check if the camera is recognized in Device Manager\n6. **Restart app**: Close and restart this application\n\nIf the problem persists, try using image or video recognition as alternatives."
+    },
+    {
+      "category": "Performance Issues",
+      "keywords": ["slow", "lag", "speed", "performance", "delay", "low FPS", "frame rate", "optimize"],
+      "synonyms": ["stuttering", "too slow", "slow response", "not smooth", "low fps", "low frame rate"],
+      "question": "What to do if recognition is slow?",
+      "answer": "Tips for improving recognition speed:\n\n1. **Lower resolution**: Reduce the resolution of input images/videos\n2. **Close other programs**: Free up CPU/GPU resources\n3. **Use GPU**: If you have an NVIDIA GPU, ensure CUDA is available\n4. **Reduce targets**: Too many gestures in the frame will reduce speed\n5. **Upgrade hardware**: A faster CPU or GPU can significantly improve performance\n\nThis system uses YOLOv8n (nano version), optimized for real-time performance, achieving good performance even on regular CPUs."
+    },
+    {
+      "category": "Tech Stack",
+      "keywords": ["technology", "framework", "what uses", "Python", "Gradio", "library", "dependencies"],
+      "synonyms": ["tech choices", "what's used", "what tech", "what framework", "built with", "tech solution"],
+      "question": "What technologies does the system use?",
+      "answer": "System tech stack:\n\n- **Deep Learning**: PyTorch 2.x + Ultralytics 8.x\n- **Detection Model**: YOLOv8n\n- **Frontend**: Gradio 4.x\n- **Image Processing**: OpenCV 4.x\n- **Database**: SQLite (local storage)\n- **Programming Language**: Python\n\nThis is a typical end-to-end deep learning application, built entirely with the Python ecosystem from model inference to user interface."
+    }
+  ],
+  "default_response": "Sorry, I cannot understand your question at the moment. You can try these questions:\n\n1. What is this system?\n2. Which gestures are supported?\n3. How to improve recognition accuracy?\n4. What is YOLO?\n5. What is CNN?\n6. What is the model information?\n7. What to do if the camera cannot be opened?\n8. What to do if recognition is slow?\n9. What technologies does the system use?\n\nPlease enter a related question, I'll do my best to help!"
+}

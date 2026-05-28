@@ -1,15 +1,20 @@
 """Agent问答引擎模块 - 双层混合架构（规则层 + LLM层）。"""
 
 import json
+import logging
 import os
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 import config
+from core.i18n import t
 from core.text_preprocessor import TextPreprocessor
 from core.llm_layer import LLMLayer
 from core.intent_router import IntentRouter
+from core.tools import TOOL_REGISTRY
+
+logger = logging.getLogger(__name__)
 
 
 class GestureAgent:
@@ -20,13 +25,20 @@ class GestureAgent:
     BETA = 0.3    # 关键词匹配权重
     GAMMA = 0.1   # 精确匹配加分
 
-    def __init__(self, knowledge_base_path=None):
-        self.kb_path = knowledge_base_path or config.KNOWLEDGE_BASE_PATH
+    def __init__(self, knowledge_base_path=None, lang=None):
+        self._lang = lang or config.DEFAULT_LANGUAGE
+        self.kb_path = knowledge_base_path or self._resolve_kb_path(self._lang)
         self.qa_pairs = []
         self.default_response = ""
-        self.preprocessor = TextPreprocessor()
+        self.preprocessor = TextPreprocessor(lang=self._lang)
         self._load_knowledge_base()
         self._build_tfidf_index()
+
+    def _resolve_kb_path(self, lang):
+        """根据语言解析知识库路径。"""
+        return config.KNOWLEDGE_BASE_PATHS.get(
+            lang, config.KNOWLEDGE_BASE_PATH
+        )
 
     def _load_knowledge_base(self):
         """加载知识库。"""
@@ -37,7 +49,7 @@ class GestureAgent:
         self.qa_pairs = data.get("qa_pairs", [])
         self.default_response = data.get(
             "default_response",
-            "Sorry, I cannot understand your question."
+            t("agent.default_response"),
         )
         if self.qa_pairs:
             examples = "\n".join(
@@ -46,10 +58,10 @@ class GestureAgent:
                 if qa.get("question")
             )
             self.default_response = (
-                "Sorry, I cannot understand your question. "
-                "Try these:\n\n"
+                f"{t('agent.default_response')}\n"
+                f"{t('agent.try_these')}\n\n"
                 f"{examples}\n\n"
-                "Type a related question and I will do my best!"
+                f"{t('agent.input_related')}"
             )
 
     def _get_expanded_keywords(self, qa):
@@ -173,25 +185,130 @@ class GestureAgent:
 class HybridAgent:
     """双层混合Agent：规则层 + LLM层，通过意图路由器调度。"""
 
-    def __init__(self, knowledge_base_path=None):
-        self.rule_agent = GestureAgent(knowledge_base_path)
+    def __init__(self, knowledge_base_path=None, lang=None):
+        self._lang = lang or config.DEFAULT_LANGUAGE
+        self.rule_agent = GestureAgent(knowledge_base_path, lang=self._lang)
         self.llm_layer = LLMLayer()
         self.router = IntentRouter(self.rule_agent, self.llm_layer)
+        self.tools = TOOL_REGISTRY
 
-    def answer(self, question):
+    def reload(self, lang):
+        """切换语言时重新加载对应知识库和重建索引。
+
+        Args:
+            lang: 新的语言代码
+        """
+        self._lang = lang
+        self.rule_agent = GestureAgent(lang=lang)
+        self.router = IntentRouter(self.rule_agent, self.llm_layer)
+        # 切换语言时清空 LLM 对话历史，避免旧语言上下文干扰
+        self.llm_layer.clear_history()
+        # 重新加载工具注册表（关键词可能随语言变化）
+        from core.tools import build_tool_registry
+        self.tools = build_tool_registry()
+
+    def _select_and_run_tools(self, question):
+        """根据问题关键词选择合适的工具并执行。
+
+        Args:
+            question: 用户问题
+
+        Returns:
+            str: 检索到的上下文文本，失败时返回空字符串
+        """
+        if not question or not config.AGENT_RAG_ENABLED:
+            return ""
+
+        question_lower = question.lower()
+
+        # 代码查询特殊处理：提取函数/类名
+        code_keywords = t("keywords.code").split(",")
+        code_keywords = [kw.strip() for kw in code_keywords]
+        if any(kw in question for kw in code_keywords):
+            import re
+            func_match = re.search(
+                r"[a-zA-Z_][a-zA-Z0-9_]*", question
+            )
+            if func_match:
+                func_name = func_match.group(0)
+                skip_words = {"how", "what", "is", "the", "function",
+                              "class", "code", "def", "this"}
+                if func_name.lower() not in skip_words:
+                    try:
+                        code_tool = next(
+                            (t2 for t2 in self.tools
+                             if t2["name"] == "query_code"), None
+                        )
+                        if code_tool is None:
+                            return ""
+                        result = code_tool["func"](func_name)
+                        if t("tools.func_not_found", name="") not in result:
+                            return result
+                    except Exception as e:
+                        logger.warning("query_code failed: %s", e)
+
+        # 按关键词匹配工具（跳过最后的兜底工具）
+        for tool in self.tools[:-1]:
+            for kw in tool["keywords"]:
+                if kw in question_lower:
+                    try:
+                        result = tool["func"](question)
+                        if result and not self._is_tool_error(result):
+                            return result
+                    except Exception as e:
+                        logger.warning("Tool %s failed: %s",
+                                       tool["name"], e)
+
+        # 兜底：使用知识库检索
+        try:
+            result = self.tools[-1]["func"](question)
+            if result and not self._is_tool_error(result):
+                return result
+            return ""
+        except Exception as e:
+            logger.warning("search_knowledge_base failed: %s", e)
+            return ""
+
+    @staticmethod
+    def _is_tool_error(result):
+        """判断工具返回结果是否为错误/空结果。"""
+        if not result or not result.strip():
+            return True
+        error_markers = [
+            t("tools.query_error", error=""),
+            t("tools.kb_not_found"),
+            t("tools.kb_empty"),
+            t("tools.kb_not_found_generic"),
+            t("tools.kb_query_error", error=""),
+            t("tools.query_model_error", error=""),
+            t("tools.model_data_not_found"),
+        ]
+        for marker in error_markers:
+            if marker and marker in result:
+                return True
+        return False
+
+    def answer(self, question, lang=None):
         """回答用户问题。
 
         Args:
             question: 用户输入的问题字符串
+            lang: 目标回答语言代码，默认使用实例当前语言
 
         Returns:
             str: 回答内容
         """
+        target_lang = lang or self._lang
         try:
-            answer_text, source = self.router.route(question)
+            # 先执行工具检索获取上下文
+            context = self._select_and_run_tools(question)
+            # 将上下文传递给路由器，由路由器决定走规则层还是LLM层
+            answer_text, _source = self.router.route(
+                question, context=context, lang=target_lang
+            )
             return answer_text
         except Exception:
-            return "Failed to generate answer. Please try again later."
+            return t("agent.answer_gen_failed")
 
     def get_quick_questions(self):
         """获取快捷问题列表。"""

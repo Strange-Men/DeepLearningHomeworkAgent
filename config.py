@@ -28,6 +28,21 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 DB_PATH = os.path.join(DATA_DIR, "history.db")
 KNOWLEDGE_BASE_PATH = os.path.join(DATA_DIR, "knowledge_base.json")
 
+# 国际化配置
+DEFAULT_LANGUAGE = "zh-CN"
+LANG_NAMES = {
+    "zh-CN": "简体中文",
+    "zh-TW": "繁體中文",
+    "en": "English",
+    "fr": "Français",
+}
+KNOWLEDGE_BASE_PATHS = {
+    "zh-CN": os.path.join(DATA_DIR, "knowledge_base.json"),
+    "zh-TW": os.path.join(DATA_DIR, "knowledge_base_zh-TW.json"),
+    "en": os.path.join(DATA_DIR, "knowledge_base_en.json"),
+    "fr": os.path.join(DATA_DIR, "knowledge_base_fr.json"),
+}
+
 # 检测结果保存目录
 RESULTS_DIR = os.path.join(BASE_DIR, "results")
 HISTORY_VIDEOS_DIR = os.path.join(DATA_DIR, "history_videos")
@@ -42,7 +57,7 @@ APP_SHARE = False
 
 # Agent配置
 AGENT_SIMILARITY_THRESHOLD = 0.2
-AGENT_RULE_HIGH_THRESHOLD = 0.7
+AGENT_RULE_HIGH_THRESHOLD = 0.3
 AGENT_RULE_LOW_THRESHOLD = 0.2
 AGENT_LLM_ENABLED = True
 AGENT_LLM_TIMEOUT = 30
@@ -57,3 +72,15 @@ MIMO_MODEL_NAME = os.getenv("MIMO_MODEL_NAME", "mimo-2.5-pro")
 if not MIMO_API_KEY:
     print("[WARNING] MIMO_API_KEY not set. LLM layer disabled. "
           "Set it in .env file.")
+
+# Agent RAG 配置
+AGENT_RAG_ENABLED = True
+AGENT_RAG_MAX_CONTEXT_LEN = 1500
+
+# 模型训练结果路径
+TRAIN_RESULTS_PATH = os.path.join(
+    BASE_DIR, "runs", "detect", "train4", "results.csv"
+)
+TRAIN_ARGS_PATH = os.path.join(
+    BASE_DIR, "runs", "detect", "train4", "args.yaml"
+)

@@ -87,6 +87,16 @@ Feature: 智能问答助手
     Given 用户打开Agent问答页面
     When 用户输入"YOLO是什么？"
     Then Agent解释YOLO算法的基本原理
+
+  Scenario: 查询历史记录（RAG）
+    Given 用户打开Agent问答页面
+    When 用户输入"最近有什么检测记录？"
+    Then Agent调用RAG工具查询历史记录并返回摘要
+
+  Scenario: 查询模型指标（RAG）
+    Given 用户打开Agent问答页面
+    When 用户输入"模型的mAP是多少？"
+    Then Agent调用RAG工具读取训练指标并返回结果
 ```
 
 ### Story 5: 历史记录
@@ -110,6 +120,32 @@ Feature: 识别历史记录
     Given 历史记录列表中有数据
     When 用户点击某条记录的"删除"按钮
     Then 该记录从列表中移除
+```
+
+### Story 6: 多语言切换
+```gherkin
+Feature: 多语言支持
+  As a 用户
+  I want to 切换界面语言
+  So that 我能使用母语操作系统
+
+  Scenario: 切换到英文
+    Given 用户打开任意页面
+    When 用户在语言下拉框选择"English"
+    Then 界面文本全部切换为英文
+    And Agent知识库切换为英文知识库
+
+  Scenario: 切换到繁体中文
+    Given 用户当前使用简体中文
+    When 用户在语言下拉框选择"繁體中文"
+    Then 界面文本全部切换为繁体中文
+    And Agent知识库切换为繁体中文知识库
+
+  Scenario: 语言回退
+    Given 用户切换到法文
+    When 某个翻译键缺失法文翻译
+    Then 系统回退到简体中文翻译
+    And 若简体中文也缺失则显示原始键名
 ```
 
 ---
@@ -153,16 +189,22 @@ CREATE TABLE detection_history (
 |------|------|------|------|
 | detector | `detect_image(image)` | numpy数组 | DetectionResult |
 | detector | `detect_frame(frame)` | numpy数组 | (annotated_frame, fps) |
-| agent | `answer(question)` | 字符串 | 字符串 |
+| agent | `answer(question, language)` | 字符串, 语言代码 | 字符串 |
 | history | `add_record(...)` | 检测结果 | record_id |
 | history | `get_records(limit)` | 数量 | List[Record] |
 | history | `delete_record(id)` | record_id | bool |
+| i18n | `set_language(lang)` | 语言代码 | None |
+| i18n | `t(key, **kwargs)` | 翻译键, 参数 | 字符串 |
+| tools | `query_history(db_path)` | 数据库路径 | 历史记录摘要 |
+| tools | `query_model_metrics()` | 无 | 模型训练指标 |
+| tools | `search_knowledge_base(query)` | 查询文本 | 匹配结果 |
 
 ### API示例
 
 ```python
 # 图片检测
-detector = GestureDetector("runs/detect/train4/weights/best.pt")
+from core.detector import GestureDetector
+detector = GestureDetector()  # 从 config.py 读取模型路径
 result = detector.detect_image(cv2.imread("test.jpg"))
 # result = {
 #   "image": <标注后的图片>,
@@ -170,13 +212,19 @@ result = detector.detect_image(cv2.imread("test.jpg"))
 #   "count": 1
 # }
 
-# Agent问答
-agent = GestureAgent("data/knowledge_base.json")
-answer = agent.answer("支持哪些手势？")
-# answer = "系统支持10类手势：字母(A,D,I,L,V,W,Y)、数字(5,7)、特殊(I love you)"
+# Agent问答（双层混合架构）
+from core.agent import HybridAgent
+agent = HybridAgent()  # 自动加载规则层 + LLM 层 + RAG 工具
+answer = agent.answer("支持哪些手势？", language="zh-CN")
+
+# 国际化
+from core.i18n import i18n
+i18n.set_language("en")
+label = i18n.t("tab_image")  # 返回英文翻译
 
 # 历史记录
-history = HistoryManager("data/history.db")
+from core.history import HistoryManager
+history = HistoryManager()
 record_id = history.add_record("image", "result.jpg", result)
 records = history.get_records(limit=10)
 ```

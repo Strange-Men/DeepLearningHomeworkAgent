@@ -85,19 +85,20 @@
 | 优先级 | 条件 | 路由目标 | 理由 |
 |--------|------|----------|------|
 | 1 | 精确匹配（去除标点后完全一致） | 规则层直接返回 | 确定性 100%，无需 LLM |
-| 2 | 规则层相似度 >= 0.7（高阈值） | 规则层直接返回 | 高置信度命中，LLM 是浪费 |
-| 3 | 规则层相似度 0.3 ~ 0.7（模糊区间） | 规则层 + LLM 并行，取置信度高者 | 不确定区域，双路验证 |
-| 4 | 规则层相似度 < 0.3 或关键词全未命中 | LLM 层 | 规则层无法处理，交给 LLM |
+| 2 | 规则层相似度 >= 0.3（高阈值） | 规则层直接返回 | 高置信度命中，LLM 是浪费 |
+| 3 | 规则层相似度 0.2 ~ 0.3（模糊区间） | LLM 优先，失败回退规则层 | 不确定区域，优先尝试 LLM |
+| 4 | 规则层相似度 < 0.2 或关键词全未命中 | LLM 层 | 规则层无法处理，交给 LLM |
 | 5 | LLM 层调用失败 | 回退规则层最佳匹配 | 降级兜底 |
 
 ### 3.2 路由阈值配置（config.py 新增）
 
 ```python
 # Agent 路由配置
-AGENT_RULE_HIGH_THRESHOLD = 0.7    # 规则层高置信度阈值
-AGENT_RULE_LOW_THRESHOLD = 0.3     # 规则层低置信度阈值
+AGENT_SIMILARITY_THRESHOLD = 0.2   # 知识库匹配最低阈值
+AGENT_RULE_HIGH_THRESHOLD = 0.3    # 规则层高置信度阈值
+AGENT_RULE_LOW_THRESHOLD = 0.2     # 规则层低置信度阈值
 AGENT_LLM_ENABLED = True           # 是否启用 LLM 层
-AGENT_LLM_TIMEOUT = 10             # LLM 调用超时（秒）
+AGENT_LLM_TIMEOUT = 30             # LLM 调用超时（秒）
 AGENT_LLM_MAX_RETRIES = 2          # LLM 最大重试次数
 AGENT_LLM_MAX_HISTORY = 5          # 最多保留对话轮数
 ```
@@ -304,7 +305,62 @@ LLM 不可用时，在回答末尾附加提示（不暴露技术细节）：
 
 ---
 
-## 七、API Key 安全管理方案
+## 七、RAG 工具检索模块
+
+### 7.1 设计目标
+
+为 Agent 增强检索增强生成（RAG）能力，使 LLM 层能够主动查询系统内部信息，而非仅依赖知识库静态回答。
+
+### 7.2 工具列表
+
+| 工具函数 | 功能 | 触发关键词 |
+|----------|------|-----------|
+| `query_history()` | 查询 SQLite 检测历史记录，支持多语言时间关键词（今天/昨天/本周/最近N天） | "历史"、"记录"、"history"、"record" |
+| `query_model_metrics()` | 读取训练 results.csv 和 args.yaml，报告 mAP50、mAP50-95、precision、recall、loss | "模型"、"指标"、"mAP"、"metrics" |
+| `query_code()` | 搜索项目源码中的函数/类定义 | "代码"、"函数"、"code"、"function" |
+| `search_knowledge_base()` | 基于关键词 + jieba 分词匹配知识库 | "知识库"、"knowledge" |
+
+### 7.3 工具注册机制
+
+`build_tool_registry()` 函数创建关键词索引的工具列表，Agent 根据用户问题中的关键词自动选择合适工具，将检索结果注入 LLM 上下文。
+
+### 7.4 上下文注入
+
+RAG 检索结果作为系统消息注入 LLM 对话，最大上下文长度由 `AGENT_RAG_MAX_CONTEXT_LEN`（默认 1500 字符）控制。
+
+---
+
+## 八、国际化（i18n）模块
+
+### 8.1 设计目标
+
+支持 UI 界面和 Agent 知识库的多语言切换，当前支持 4 种语言：简体中文（zh-CN）、繁體中文（zh-TW）、English（en）、Français（fr）。
+
+### 8.2 架构
+
+```
+locales/                 # UI 翻译文件（JSON 格式）
+├── zh-CN.json
+├── zh-TW.json
+├── en.json
+└── fr.json
+
+data/                    # 每语言独立知识库
+├── knowledge_base.json         # 中文
+├── knowledge_base_zh-TW.json   # 繁体中文
+├── knowledge_base_en.json      # 英文
+└── knowledge_base_fr.json      # 法文
+```
+
+### 8.3 核心接口
+
+- `i18n.set_language(lang)` — 切换当前语言
+- `i18n.t(key, **kwargs)` — 获取翻译文本，支持参数化插值，带回退链（当前语言 → zh-CN → 原始 key）
+- Agent 切换语言时自动重载对应语言的知识库
+
+---
+
+## 九、API Key 安全管理方案
 
 ### 7.1 文件结构
 
@@ -355,9 +411,9 @@ MIMO_MODEL_NAME=mimo-2.5-pro
 
 ---
 
-## 八、文件与目录变更规划
+## 十、文件与目录变更规划
 
-### 8.1 新增文件
+### 10.1 新增文件
 
 | 文件路径 | 用途 |
 |----------|------|
@@ -366,11 +422,19 @@ MIMO_MODEL_NAME=mimo-2.5-pro
 | `core/llm_layer.py` | LLM 层封装（MiMo API 调用、重试、上下文管理） |
 | `core/intent_router.py` | 意图路由器（决定走规则层还是 LLM 层） |
 | `core/text_preprocessor.py` | 文本预处理（分词、去停用词、归一化） |
-| `data/synonyms.json` | 同义词表（可选，也可内嵌到知识库） |
 | `data/stopwords.txt` | 中文停用词表 |
 | `data/custom_dict.txt` | jieba 自定义词典 |
+| `core/i18n.py` | 国际化模块（多语言 UI 翻译） |
+| `core/tools.py` | RAG 检索工具（历史/模型指标/源码/知识库查询） |
+| `data/knowledge_base_en.json` | 英文问答知识库 |
+| `data/knowledge_base_fr.json` | 法文问答知识库 |
+| `data/knowledge_base_zh-TW.json` | 繁体中文问答知识库 |
+| `locales/zh-CN.json` | 简体中文 UI 翻译 |
+| `locales/zh-TW.json` | 繁体中文 UI 翻译 |
+| `locales/en.json` | 英文 UI 翻译 |
+| `locales/fr.json` | 法文 UI 翻译 |
 
-### 8.2 修改文件
+### 10.2 修改文件
 
 | 文件路径 | 变更内容 |
 |----------|----------|
@@ -383,7 +447,7 @@ MIMO_MODEL_NAME=mimo-2.5-pro
 
 ---
 
-## 九、实施步骤建议
+## 十一、实施步骤建议
 
 ### Phase 1：安全基础设施 + 配置准备（优先级最高）
 
@@ -426,7 +490,7 @@ MIMO_MODEL_NAME=mimo-2.5-pro
 
 ---
 
-## 十、新增依赖清单
+## 十二、新增依赖清单
 
 | 包名 | 版本 | 用途 |
 |------|------|------|
@@ -436,7 +500,7 @@ MIMO_MODEL_NAME=mimo-2.5-pro
 
 ---
 
-## 十一、风险与注意事项
+## 十三、风险与注意事项
 
 | 风险 | 应对 |
 |------|------|
@@ -474,7 +538,7 @@ MIMO_MODEL_NAME=mimo-2.5-pro
 - 状态：已完成
 - 新增文件：`core/intent_router.py`（路由决策逻辑）
 - 修改文件：`core/agent.py`（新增 HybridAgent 类）、`app.py`（改用 HybridAgent）
-- 路由逻辑：精确匹配→规则层直接返回 | 高置信度(>=0.7)→规则层 | 低置信度(<0.2)→LLM | 模糊区间→双路取高分
+- 路由逻辑：精确匹配→规则层直接返回 | 高置信度(>=0.3)→规则层 | 低置信度(<0.2)→LLM | 模糊区间(0.2~0.3)→LLM优先，失败回退规则层
 - 降级：LLM 失败→规则层最佳匹配+降级提示 | 熔断：连续3次失败→60秒内跳过LLM
 - app.py 新增 _FallbackAgent 内部类处理初始化失败场景
 
@@ -484,3 +548,18 @@ MIMO_MODEL_NAME=mimo-2.5-pro
 - 端到端测试：9 项测试全部通过（模块导入、配置加载、预处理、规则层匹配、LLM 无 Key 降级、路由器精确匹配/降级、HybridAgent 集成、快捷问题、清空历史）
 - 更新文件：`README.md`（新增 .env 配置说明、更新项目结构和开发进度）
 - .gitignore 验证：`.env` 被正确排除
+
+### Phase 6 实现记录 - RAG 工具检索
+- 状态：已完成
+- 新增文件：`core/tools.py`（4 个 RAG 工具函数 + 工具注册机制）
+- 工具列表：`query_history()`（多语言时间关键词解析）、`query_model_metrics()`（读取训练指标）、`query_code()`（源码搜索）、`search_knowledge_base()`（知识库关键词匹配）
+- 集成方式：HybridAgent 根据用户问题关键词自动选择工具，检索结果注入 LLM 上下文
+- 配置：`AGENT_RAG_ENABLED = True`，`AGENT_RAG_MAX_CONTEXT_LEN = 1500`
+
+### Phase 7 实现记录 - 国际化（i18n）
+- 状态：已完成
+- 新增文件：`core/i18n.py`、`locales/zh-CN.json`、`locales/zh-TW.json`、`locales/en.json`、`locales/fr.json`
+- 新增知识库：`data/knowledge_base_en.json`、`data/knowledge_base_fr.json`、`data/knowledge_base_zh-TW.json`
+- 修改文件：`app.py`（UI 文本全部走 i18n 翻译，新增语言切换下拉框）、`config.py`（新增多语言知识库路径映射）、`core/agent.py`（HybridAgent 支持语言切换重载知识库）、`core/text_preprocessor.py`（支持英法文分词）
+- 翻译机制：`t(key, **kwargs)` 函数，回退链：当前语言 → zh-CN → 原始 key
+- 支持语言：简体中文、繁體中文、English、Français

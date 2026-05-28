@@ -13,20 +13,23 @@ import cv2
 import gradio as gr
 
 import config
+from core.i18n import init as i18n_init, t, set_language, get_language
 from core.detector import GestureDetector
 from core.agent import HybridAgent
 from core.history import HistoryManager
 from utils.image_utils import pil_to_cv2, cv2_to_pil
 
+i18n_init()
+
 detector = GestureDetector()
 try:
     agent = HybridAgent()
 except Exception as e:
-    print(f"[WARNING] Agent初始化失败: {e}，将使用空知识库")
+    print(t("app.agent_init_warning", error=e))
 
     class _FallbackAgent:
         def answer(self, q):
-            return "Agent initialization failed, please check config."
+            return t("app.fallback_agent_msg")
 
         def get_quick_questions(self):
             return []
@@ -37,24 +40,33 @@ except Exception as e:
     agent = _FallbackAgent()
 history = HistoryManager()
 
+_LANG_LABELS = {
+    "zh-CN": "简体中文",
+    "zh-TW": "繁體中文",
+    "en": "English",
+    "fr": "Français",
+}
+
 
 def detect_image_fn(image):
     """图片识别处理函数。"""
     if image is None:
-        return None, "请上传图片", ""
+        return None, t("msg.please_upload_image"), ""
     cv_image = pil_to_cv2(image)
     result = detector.detect_image(cv_image)
     result_pil = cv2_to_pil(result["image"])
     gestures = result["gestures"]
     if not gestures:
-        stats = "未检测到手势"
+        stats = t("msg.no_gesture_detected")
         detail = ""
     else:
-        stats = f"检测到 {result['count']} 个手势"
+        stats = t("msg.detected_count", count=result['count'])
         detail_lines = []
         for i, g in enumerate(gestures, 1):
+            conf_str = f"{g['confidence']:.2%}"
             detail_lines.append(
-                f"{i}. {g['class']} (置信度: {g['confidence']:.2%})"
+                f"{i}. {g['class']} "
+                f"({t('msg.confidence', value=conf_str)})"
             )
         detail = "\n".join(detail_lines)
     result_path = os.path.join(
@@ -107,10 +119,10 @@ def _convert_to_h264_mp4(src_path):
 def process_video_fn(video):
     """视频逐帧识别处理函数。"""
     if video is None:
-        return None, "请上传视频"
+        return None, t("msg.please_upload_video")
     cap = cv2.VideoCapture(video)
     if not cap.isOpened():
-        return None, "无法打开视频文件"
+        return None, t("msg.cannot_open_video")
     fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -123,7 +135,7 @@ def process_video_fn(video):
     writer = cv2.VideoWriter(avi_path, fourcc, fps, (width, height))
     if not writer.isOpened():
         cap.release()
-        return None, "视频编码器初始化失败"
+        return None, t("msg.encoder_init_failed")
     # 每个类别出现的帧数（同一帧内同一类别只计1次）
     class_frame_counts = {}
     frame_count = 0
@@ -160,9 +172,9 @@ def process_video_fn(video):
     cap.release()
     writer.release()
     if frame_count == 0:
-        return None, "视频为空"
+        return None, t("msg.video_empty")
     if not os.path.exists(avi_path) or os.path.getsize(avi_path) == 0:
-        return None, "视频输出文件写入失败"
+        return None, t("msg.video_write_failed")
     # 转码为 H.264 MP4，确保浏览器可播放
     mp4_path = _convert_to_h264_mp4(avi_path)
     if mp4_path:
@@ -177,22 +189,25 @@ def process_video_fn(video):
     history.add_record(
         "video", video, result_path, detections_summary, total_gestures, fps
     )
-    return result_path, f"处理完成: {frame_count} 帧, FPS: {fps:.1f}"
+    return result_path, t("msg.process_complete", frames=frame_count, fps=f"{fps:.1f}")
 
 
 camera_running = False
 camera_cap = None
+camera_frame_count = 0
+CAMERA_SAVE_INTERVAL = 30
 
 
 def start_camera():
     """启动摄像头。"""
-    global camera_running, camera_cap
+    global camera_running, camera_cap, camera_frame_count
     camera_running = True
     camera_cap = cv2.VideoCapture(0)
+    camera_frame_count = 0
     if not camera_cap.isOpened():
         camera_running = False
-        return None, "无法打开摄像头，请检查设备连接"
-    return None, "摄像头已启动"
+        return None, t("msg.cannot_open_camera")
+    return None, t("msg.camera_started")
 
 
 def stop_camera():
@@ -202,17 +217,54 @@ def stop_camera():
     if camera_cap is not None:
         camera_cap.release()
         camera_cap = None
-    return None, "摄像头已停止"
+    return None, t("msg.camera_stopped")
 
 
 def capture_frame():
     """获取摄像头帧并检测。"""
+    global camera_frame_count
     if not camera_running or camera_cap is None:
-        return None, "摄像头未启动"
+        return None, t("msg.camera_not_started")
     ret, frame = camera_cap.read()
     if not ret:
-        return None, "无法读取摄像头画面"
-    annotated, fps = detector.detect_frame(frame)
+        return None, t("msg.cannot_read_frame")
+
+    # 直接运行模型预测以获取检测详情
+    start = time.time()
+    results = detector.model.predict(
+        source=frame,
+        imgsz=detector.imgsz,
+        conf=detector.conf,
+        verbose=False
+    )
+    elapsed = time.time() - start
+    fps = 1.0 / elapsed if elapsed > 0 else 0
+    result = results[0]
+    annotated = result.plot()
+
+    gestures = []
+    names = detector.model.names
+    for box in result.boxes:
+        cls_id = int(box.cls[0])
+        gestures.append({
+            "class": names[cls_id],
+            "confidence": float(box.conf[0]),
+        })
+
+    camera_frame_count += 1
+
+    # 每隔 N 帧且检测到手势时保存一次历史记录
+    if (camera_frame_count % CAMERA_SAVE_INTERVAL == 0
+            and gestures):
+        result_path = os.path.join(
+            config.RESULTS_DIR,
+            f"cam_{int(time.time())}.jpg"
+        )
+        cv2.imwrite(result_path, annotated)
+        history.add_record(
+            "camera", "", result_path, gestures, len(gestures)
+        )
+
     result_pil = cv2_to_pil(annotated)
     info = f"FPS: {fps:.1f}"
     return result_pil, info
@@ -223,13 +275,17 @@ def agent_answer(message, chat_history):
     try:
         if not message.strip():
             return chat_history, ""
-        response = agent.answer(message)
+        lang = get_language()
+        response = agent.answer(message, lang=lang)
         chat_history.append({"role": "user", "content": message})
         chat_history.append({"role": "assistant", "content": response})
         return chat_history, ""
     except Exception:
         chat_history.append({"role": "user", "content": message})
-        chat_history.append({"role": "assistant", "content": "回答生成失败，请稍后重试。"})
+        chat_history.append({
+            "role": "assistant",
+            "content": t("msg.answer_failed"),
+        })
         return chat_history, ""
 
 
@@ -242,22 +298,29 @@ def load_history_list():
     """加载历史记录列表。"""
     records = history.get_records()
     if not records:
-        return gr.update(choices=[], value=None), "暂无历史记录"
+        return gr.update(choices=[], value=None), t("msg.no_history")
     choices = []
     for r in records:
-        label = f"[{r['id']}] {r['source_type']} | {r['created_at'][:19]} | 手势数: {r['gesture_count']}"
+        label = (
+            f"[{r['id']}] {r['source_type']} | "
+            f"{r['created_at'][:19]} | "
+            f"{t('tools.gesture_count_short', count=r['gesture_count'])}"
+        )
         choices.append(label)
-    return gr.update(choices=choices, value=choices[0] if choices else None), f"共 {len(records)} 条记录"
+    return (
+        gr.update(choices=choices, value=choices[0] if choices else None),
+        t("msg.record_count", count=len(records)),
+    )
 
 
 def view_record_detail(selected):
     """查看记录详情。"""
     if not selected:
-        return None, None, "请选择记录"
+        return None, None, t("msg.please_select_record")
     record_id = int(selected.split("]")[0].replace("[", ""))
     record = history.get_record_by_id(record_id)
     if not record:
-        return None, None, "记录不存在"
+        return None, None, t("msg.record_not_found")
     result_path = record.get("result_path", "")
     image = None
     video = None
@@ -270,19 +333,27 @@ def view_record_detail(selected):
                 image = cv2_to_pil(img)
     detections = json.loads(record.get("detections", "{}"))
     gestures = detections if isinstance(detections, list) else []
-    detail = f"ID: {record['id']}\n"
-    detail += f"类型: {record['source_type']}\n"
-    detail += f"时间: {record['created_at']}\n"
-    detail += f"手势数量: {record['gesture_count']}\n"
+    detail = f"{t('msg.record_id', id=record['id'])}\n"
+    detail += f"{t('msg.record_type', type=record['source_type'])}\n"
+    detail += f"{t('msg.record_time', time=record['created_at'])}\n"
+    detail += (
+        f"{t('msg.gesture_count_label', count=record['gesture_count'])}\n"
+    )
     if record.get('fps'):
         detail += f"FPS: {record['fps']:.1f}\n"
     if gestures:
-        detail += "\n检测结果:\n"
+        detail += f"\n{t('msg.detection_results')}\n"
         for g in gestures:
             if 'frame_count' in g:
-                detail += f"  {g.get('class', 'N/A')}: {g['frame_count']}帧\n"
+                detail += (
+                    f"  {g.get('class', 'N/A')}: "
+                    f"{t('msg.frame_count', count=g['frame_count'])}\n"
+                )
             elif 'total_count' in g:
-                detail += f"  {g.get('class', 'N/A')}: {g['total_count']}次\n"
+                detail += (
+                    f"  {g.get('class', 'N/A')}: "
+                    f"{t('msg.count_times', count=g['total_count'])}\n"
+                )
             else:
                 detail += (
                     f"  {g.get('class', 'N/A')}"
@@ -294,82 +365,187 @@ def view_record_detail(selected):
 def delete_record_fn(selected):
     """删除选中记录。"""
     if not selected:
-        return "请选择要删除的记录"
+        return t("msg.please_select_to_delete")
     record_id = int(selected.split("]")[0].replace("[", ""))
-    history.delete_record(record_id)
-    choices, count_text = load_history_list()
-    return "记录已删除"
+    file_deleted = history.delete_record(record_id)
+    if file_deleted:
+        return t("msg.record_deleted_with_file")
+    return t("msg.record_deleted")
 
 
 def clear_all_records():
     """清空所有记录。"""
-    history.clear_all()
-    return "所有记录已清空"
+    deleted_count = history.clear_all()
+    return t("msg.all_records_cleared", count=deleted_count)
 
 
-with gr.Blocks(title="手势识别系统") as demo:
-    gr.Markdown("# YOLOv8 手势识别系统")
-    gr.Markdown("基于YOLOv8n的实时手势识别系统，支持图片/视频/摄像头识别")
+def change_language(lang):
+    """切换语言并更新所有组件文本。
 
-    with gr.Tab("图片识别"):
+    Args:
+        lang: 语言代码
+
+    Returns:
+        list: 所有组件的 gr.update()
+    """
+    set_language(lang)
+
+    # 重新加载 Agent（切换知识库）
+    try:
+        agent.reload(lang)
+    except AttributeError:
+        pass
+
+    # 获取快捷问题
+    try:
+        quick_qs = agent.get_quick_questions()
+    except Exception:
+        quick_qs = []
+    q_btns = []
+    for i in range(6):
+        if i < len(quick_qs):
+            q_btns.append(gr.update(value=quick_qs[i], visible=True))
+        else:
+            q_btns.append(gr.update(visible=False))
+
+    return [
+        gr.update(label="📷 " + t("tab.image")),   # tab_image
+        gr.update(label="🎬 " + t("tab.video")),   # tab_video
+        gr.update(label="📹 " + t("tab.camera")),  # tab_camera
+        gr.update(label="🤖 " + t("tab.agent")),   # tab_agent
+        gr.update(label="📋 " + t("tab.history")), # tab_history
+        gr.update(value=t("app.title")),          # header_title
+        gr.update(value=t("app.subtitle")),        # header_subtitle
+        gr.update(label=t("label.upload_image")),   # img_input
+        gr.update(value=t("btn.detect")),           # img_btn
+        gr.update(label=t("label.detection_result")),  # img_output
+        gr.update(label=t("label.statistics")),     # img_stats
+        gr.update(label=t("label.detail_info")),    # img_detail
+        gr.update(label=t("label.upload_video")),   # vid_input
+        gr.update(value=t("btn.process")),          # vid_btn
+        gr.update(label=t("label.detection_result")),  # vid_output
+        gr.update(label=t("label.process_status")),  # vid_status
+        gr.update(value=t("btn.detect")),           # cam_start_btn
+        gr.update(value=t("btn.stop")),             # cam_stop_btn
+        gr.update(label=t("label.realtime_frame")),  # cam_output
+        gr.update(label=t("label.status_info")),    # cam_info
+        gr.update(label=t("label.chat_history")),   # chatbot
+        gr.update(label=t("label.input_question")),  # msg_input
+        gr.update(placeholder=t("msg.placeholder_question")),  # msg_input placeholder
+        gr.update(value=t("btn.send")),             # send_btn
+        *q_btns,                                     # quick question buttons (6)
+        gr.update(value=t("btn.refresh_list")),     # refresh_btn
+        gr.update(value=t("btn.clear_all")),        # clear_btn
+        gr.update(label=t("label.record_stats")),   # history_count
+        gr.update(label=t("label.history_list")),   # history_list
+        gr.update(value=t("btn.view_detail")),      # view_btn
+        gr.update(value=t("btn.delete_selected")),  # del_btn
+        gr.update(label=t("label.result_image")),   # detail_image
+        gr.update(label=t("label.result_video")),   # detail_video
+        gr.update(label=t("label.record_detail")),  # detail_text
+    ]
+
+
+with gr.Blocks(title=t("app.title")) as demo:
+    header_title = gr.Markdown(f"# {t('app.title')}")
+    header_subtitle = gr.Markdown(t("app.subtitle"))
+
+    # 语言切换下拉框
+    lang_dropdown = gr.Dropdown(
+        choices=list(_LANG_LABELS.values()),
+        value=_LANG_LABELS[get_language()],
+        label=t("label.language"),
+        interactive=True,
+    )
+
+    with gr.Tab("📷 " + t("tab.image")) as tab_image:
         with gr.Row():
             with gr.Column():
-                img_input = gr.Image(type="pil", label="上传图片")
-                img_btn = gr.Button("开始识别", variant="primary")
+                img_input = gr.Image(type="pil", label=t("label.upload_image"))
+                img_btn = gr.Button(t("btn.detect"), variant="primary")
             with gr.Column():
-                img_output = gr.Image(type="pil", label="检测结果")
-                img_stats = gr.Textbox(label="统计", interactive=False)
-                img_detail = gr.Textbox(label="详细信息", interactive=False, lines=6)
+                img_output = gr.Image(type="pil", label=t("label.detection_result"))
+                img_stats = gr.Textbox(label=t("label.statistics"), interactive=False)
+                img_detail = gr.Textbox(
+                    label=t("label.detail_info"), interactive=False, lines=6
+                )
         img_btn.click(
             fn=detect_image_fn,
             inputs=[img_input],
             outputs=[img_output, img_stats, img_detail]
         )
 
-    with gr.Tab("视频识别"):
+    with gr.Tab("🎬 " + t("tab.video")) as tab_video:
         with gr.Row():
             with gr.Column():
-                vid_input = gr.Video(label="上传视频")
-                vid_btn = gr.Button("开始处理", variant="primary")
+                vid_input = gr.Video(label=t("label.upload_video"))
+                vid_btn = gr.Button(t("btn.process"), variant="primary")
             with gr.Column():
-                vid_output = gr.Video(label="检测结果")
-                vid_status = gr.Textbox(label="处理状态", interactive=False)
+                vid_output = gr.Video(label=t("label.detection_result"))
+                vid_status = gr.Textbox(
+                    label=t("label.process_status"), interactive=False
+                )
         vid_btn.click(
             fn=process_video_fn,
             inputs=[vid_input],
             outputs=[vid_output, vid_status]
         )
 
-    with gr.Tab("摄像头识别"):
+    with gr.Tab("📹 " + t("tab.camera")) as tab_camera:
         with gr.Row():
-            cam_start_btn = gr.Button("开始识别", variant="primary")
-            cam_stop_btn = gr.Button("停止识别", variant="stop")
-        cam_output = gr.Image(type="pil", label="实时画面")
-        cam_info = gr.Textbox(label="状态信息", interactive=False)
+            cam_start_btn = gr.Button(t("btn.detect"), variant="primary")
+            cam_stop_btn = gr.Button(t("btn.stop"), variant="stop")
+        cam_output = gr.Image(type="pil", label=t("label.realtime_frame"))
+        cam_info = gr.Textbox(label=t("label.status_info"), interactive=False)
         cam_timer = gr.Timer(0.033)
-        cam_timer.tick(fn=capture_frame, inputs=[], outputs=[cam_output, cam_info])
-        cam_start_btn.click(fn=start_camera, inputs=[], outputs=[cam_output, cam_info])
-        cam_stop_btn.click(fn=stop_camera, inputs=[], outputs=[cam_output, cam_info])
+        cam_timer.tick(
+            fn=capture_frame, inputs=[], outputs=[cam_output, cam_info]
+        )
+        cam_start_btn.click(
+            fn=start_camera, inputs=[], outputs=[cam_output, cam_info]
+        )
+        cam_stop_btn.click(
+            fn=stop_camera, inputs=[], outputs=[cam_output, cam_info]
+        )
 
-    with gr.Tab("Agent问答"):
-        chatbot = gr.Chatbot(label="对话历史", height=400)
+    with gr.Tab("🤖 " + t("tab.agent")) as tab_agent:
+        chatbot = gr.Chatbot(label=t("label.chat_history"), height=400)
         with gr.Row():
-            msg_input = gr.Textbox(label="输入问题", placeholder="请输入您的问题...", scale=4)
-            send_btn = gr.Button("发送", variant="primary", scale=1)
+            msg_input = gr.Textbox(
+                label=t("label.input_question"),
+                placeholder=t("msg.placeholder_question"),
+                scale=4,
+            )
+            send_btn = gr.Button(t("btn.send"), variant="primary", scale=1)
+        try:
+            quick_qs = agent.get_quick_questions()
+        except Exception:
+            quick_qs = []
+        quick_btns_row1 = []
+        quick_btns_row2 = []
         with gr.Row():
-            try:
-                quick_qs = agent.get_quick_questions()
-            except Exception:
-                quick_qs = []
             for q in quick_qs[:3]:
-                gr.Button(q, size="sm").click(
-                    fn=quick_question_fn, inputs=[gr.State(q)], outputs=[msg_input]
+                btn = gr.Button(q, size="sm")
+                btn.click(
+                    fn=quick_question_fn,
+                    inputs=[gr.State(q)],
+                    outputs=[msg_input],
                 )
+                quick_btns_row1.append(btn)
         with gr.Row():
             for q in quick_qs[3:6]:
-                gr.Button(q, size="sm").click(
-                    fn=quick_question_fn, inputs=[gr.State(q)], outputs=[msg_input]
+                btn = gr.Button(q, size="sm")
+                btn.click(
+                    fn=quick_question_fn,
+                    inputs=[gr.State(q)],
+                    outputs=[msg_input],
                 )
+                quick_btns_row2.append(btn)
+        # Pad to 6 buttons total for change_language callback
+        all_quick_btns = quick_btns_row1 + quick_btns_row2
+        while len(all_quick_btns) < 6:
+            dummy = gr.Button(visible=False)
+            all_quick_btns.append(dummy)
         send_btn.click(
             fn=agent_answer,
             inputs=[msg_input, chatbot],
@@ -381,23 +557,62 @@ with gr.Blocks(title="手势识别系统") as demo:
             outputs=[chatbot, msg_input]
         )
 
-    with gr.Tab("历史记录"):
+    with gr.Tab("📋 " + t("tab.history")) as tab_history:
         with gr.Row():
-            refresh_btn = gr.Button("刷新列表", variant="primary")
-            clear_btn = gr.Button("清空所有", variant="stop")
-        history_count = gr.Textbox(label="记录统计", interactive=False)
-        history_list = gr.Radio(label="历史记录", choices=[], interactive=True)
+            refresh_btn = gr.Button(t("btn.refresh_list"), variant="primary")
+            clear_btn = gr.Button(t("btn.clear_all"), variant="stop")
+        history_count = gr.Textbox(label=t("label.record_stats"), interactive=False)
+        history_list = gr.Radio(
+            label=t("label.history_list"), choices=[], interactive=True
+        )
         with gr.Row():
-            view_btn = gr.Button("查看详情")
-            del_btn = gr.Button("删除选中")
+            view_btn = gr.Button(t("btn.view_detail"))
+            del_btn = gr.Button(t("btn.delete_selected"))
         with gr.Row():
-            detail_image = gr.Image(type="pil", label="结果图片")
-            detail_video = gr.Video(label="结果视频")
-            detail_text = gr.Textbox(label="记录详情", interactive=False, lines=10)
-        refresh_btn.click(fn=load_history_list, inputs=[], outputs=[history_list, history_count])
-        view_btn.click(fn=view_record_detail, inputs=[history_list], outputs=[detail_image, detail_video, detail_text])
-        del_btn.click(fn=delete_record_fn, inputs=[history_list], outputs=[history_count])
-        clear_btn.click(fn=clear_all_records, inputs=[], outputs=[history_count])
+            detail_image = gr.Image(type="pil", label=t("label.result_image"))
+            detail_video = gr.Video(label=t("label.result_video"))
+            detail_text = gr.Textbox(
+                label=t("label.record_detail"), interactive=False, lines=10
+            )
+        refresh_btn.click(
+            fn=load_history_list, inputs=[], outputs=[history_list, history_count]
+        )
+        view_btn.click(
+            fn=view_record_detail,
+            inputs=[history_list],
+            outputs=[detail_image, detail_video, detail_text],
+        )
+        del_btn.click(
+            fn=delete_record_fn, inputs=[history_list], outputs=[history_count]
+        )
+        clear_btn.click(
+            fn=clear_all_records, inputs=[], outputs=[history_count]
+        )
+
+    # 语言切换回调
+    _all_outputs = [
+        tab_image, tab_video, tab_camera, tab_agent, tab_history,
+        header_title, header_subtitle,
+        img_input, img_btn, img_output, img_stats, img_detail,
+        vid_input, vid_btn, vid_output, vid_status,
+        cam_start_btn, cam_stop_btn, cam_output, cam_info,
+        chatbot, msg_input, msg_input, send_btn,
+        *all_quick_btns,
+        refresh_btn, clear_btn, history_count, history_list,
+        view_btn, del_btn, detail_image, detail_video, detail_text,
+    ]
+
+    def _on_language_change(label):
+        """语言下拉框回调：label -> lang code。"""
+        label_to_code = {v: k for k, v in _LANG_LABELS.items()}
+        lang = label_to_code.get(label, "zh-CN")
+        return change_language(lang)
+
+    lang_dropdown.change(
+        fn=_on_language_change,
+        inputs=[lang_dropdown],
+        outputs=_all_outputs,
+    )
 
 if __name__ == "__main__":
     demo.launch(

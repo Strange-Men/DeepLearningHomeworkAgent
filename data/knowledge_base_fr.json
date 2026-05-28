@@ -1,0 +1,75 @@
+{
+  "qa_pairs": [
+    {
+      "category": "Introduction du Système",
+      "keywords": ["système", "introduction", "quoi", "fonctionnalité", "aperçu"],
+      "synonyms": ["c'est quoi", "que fait-il", "but", "fonctionnalités", "à propos"],
+      "question": "Qu'est-ce que ce système ?",
+      "answer": "C'est un système de reconnaissance de gestes en temps réel basé sur YOLOv8n, prenant en charge 10 types de gestes. Le système offre trois modes de reconnaissance : reconnaissance d'images, reconnaissance vidéo et reconnaissance caméra en temps réel. Il intègre également un Agent Q&A intelligent pour vous aider à comprendre les fonctionnalités et l'utilisation du système."
+    },
+    {
+      "category": "Liste des Gestes",
+      "keywords": ["geste", "support", "quel", "catégorie", "type", "reconnaître", "lettre", "chiffre", "liste"],
+      "synonyms": ["peut détecter", "capable de reconnaître", "type de geste", "genre de geste", "classification", "quels gestes", "combien de types"],
+      "question": "Quels gestes sont supportés ?",
+      "answer": "Le système prend en charge 10 catégories de gestes :\n1. Lettre A\n2. Lettre D\n3. Lettre I\n4. Lettre L\n5. Lettre V\n6. Lettre W\n7. Lettre Y\n8. Chiffre 5\n9. Chiffre 7\n10. Geste I love you (je t'aime)\n\nCes gestes couvrent les lettres et chiffres couramment utilisés en ASL (langue des signes américaine)."
+    },
+    {
+      "category": "Conseils d'Utilisation",
+      "keywords": ["précision", "améliorer", "conseils", "comment utiliser", "utilisation", "suggestions", "optimiser", "mieux"],
+      "synonyms": ["exactitude", "taux de précision", "meilleurs résultats", "améliorer", "renforcer", "booster"],
+      "question": "Comment améliorer la précision de reconnaissance ?",
+      "answer": "Conseils pour améliorer la précision :\n1. **Éclairage adéquat** : Assurez un éclairage uniforme sur la zone du geste, évitez les conditions trop sombres ou surexposées\n2. **Arrière-plan simple** : Les fonds unis fonctionnent le mieux, évitez les arrière-plans complexes\n3. **Gestes clairs** : Gardez les gestes stables, évitez les mouvements rapides\n4. **Distance optimale** : Les gestes occupant 1/4 à 1/2 du cadre donnent les meilleurs résultats\n5. **Angle de face** : Faites face à la caméra, évitez les angles trop inclinés\n6. **Éviter l'occlusion** : Assurez que les doigts sont entièrement visibles, évitez les chevauchements"
+    },
+    {
+      "category": "Principes YOLO",
+      "keywords": ["YOLO", "principe", "algorithme", "comment ça marche", "détection", "détection d'objets"],
+      "synonyms": ["principe de fonctionnement", "mécanisme", "algorithme de détection", "algo yolo"],
+      "question": "Qu'est-ce que YOLO ?",
+      "answer": "YOLO (You Only Look Once) est un algorithme de détection d'objets en temps réel :\n\n**Principe central** : Convertit la tâche de détection d'objets en un problème de régression unique, prédisant les positions et catégories de plusieurs objets en une seule passe avant.\n\n**Fonctionnement** :\n1. Divise l'image d'entrée en une grille SxS\n2. Chaque cellule prédit B boîtes englobantes et scores de confiance\n3. Prédit simultanément les probabilités de classe pour chaque boîte\n4. Filtre les boîtes chevauchantes par Suppression Non Maximale (NMS)\n\n**Avantages** : Rapide (détection en temps réel), raisonnement global (réduit les faux positifs), forte généralisation\n\nCe système utilise YOLOv8n (version nano), offrant un bon équilibre entre vitesse et précision."
+    },
+    {
+      "category": "Concepts CNN",
+      "keywords": ["CNN", "convolution", "réseau neuronal", "apprentissage profond", "extraction de caractéristiques"],
+      "synonyms": ["réseau convolutif", "réseau de neurones", "cnn", "neurone", "modèle de réseau", "réseau profond"],
+      "question": "Qu'est-ce que le CNN ?",
+      "answer": "Le CNN (Réseau de Neurones Convolutif) est un modèle d'apprentissage profond spécialisé dans le traitement de données structurées en grille :\n\n**Composants principaux** :\n1. **Couche de convolution** : Utilise des filtres pour extraire les caractéristiques locales (contours, textures, etc.)\n2. **Couche de pooling** : Réduit les dimensions des cartes de caractéristiques\n3. **Couche entièrement connectée** : Intègre les caractéristiques pour la classification ou la régression\n\n**Caractéristiques** :\n- Connexions locales : Chaque neurone ne se concentre que sur les régions locales\n- Partage de poids : Le même filtre partage ses paramètres sur toute l'image\n- Invariance par translation : Reconnaît les mêmes caractéristiques à différentes positions\n\nL'architecture backbone de YOLOv8 est basée sur le CNN pour extraire les caractéristiques d'image pour la détection d'objets."
+    },
+    {
+      "category": "Détection d'Objets",
+      "keywords": ["détection d'objets", "détection", "boîte englobante", "bounding box", "confiance", "NMS"],
+      "synonyms": ["reconnaissance d'objets", "sélection de boîte", "cadre de reconnaissance", "cadre de détection", "nms"],
+      "question": "Qu'est-ce que la détection d'objets ?",
+      "answer": "La détection d'objets est une tâche fondamentale de la vision par ordinateur :\n\n**Objectif** : Localiser et identifier les objets d'intérêt dans une image, en produisant la classe et la position (boîte englobante) de chaque objet.\n\n**Informations de sortie** :\n- Coordonnées de la boîte englobante (x1, y1, x2, y2)\n- Étiquette de classe (ex. : Lettre A, Chiffre 5)\n- Score de confiance (entre 0 et 1)\n\n**Métriques d'évaluation** :\n- mAP (mean Average Precision) : Mesure la précision de détection\n- FPS (Images Par Seconde) : Mesure la vitesse de détection\n\nCe système atteint un mAP@0.5 supérieur à 95% avec des vitesses de détection de 30+ FPS."
+    },
+    {
+      "category": "Infos Modèle",
+      "keywords": ["modèle", "entraînement", "dataset", "précision", "paramètres", "YOLOv8n", "taille", "performance"],
+      "synonyms": ["paramètres du modèle", "taille du modèle", "données d'entraînement", "performance du modèle", "précision du modèle", "v8n"],
+      "question": "Quelles sont les informations du modèle ?",
+      "answer": "Informations techniques du modèle :\n\n- **Architecture** : YOLOv8n (version nano)\n- **Taille d'entrée** : 640x640 pixels\n- **Nombre de classes** : 10 types de gestes\n- **Seuil de confiance** : 0.25\n- **Taille du modèle** : ~6 Mo\n- **Framework d'entraînement** : Ultralytics 8.x\n- **Backend d'inférence** : PyTorch\n\nYOLOv8n est la version la plus légère de la série YOLO, adaptée aux applications temps réel, maintenant une haute précision avec une vitesse d'inférence très rapide."
+    },
+    {
+      "category": "Problèmes de Caméra",
+      "keywords": ["caméra", "webcam", "ne s'ouvre pas", "ne fonctionne pas", "écran noir", "pas d'image"],
+      "synonyms": ["caméra cassée", "caméra ne marche pas", "caméra ne s'ouvre pas", "pas d'image visible"],
+      "question": "Que faire si la caméra ne s'ouvre pas ?",
+      "answer": "Dépannage des problèmes de caméra :\n\n1. **Vérifier la connexion** : Assurez-vous que la caméra est correctement connectée à votre ordinateur\n2. **Paramètres de permission** : Vérifiez les paramètres de confidentialité du système pour autoriser l'accès à la caméra\n3. **Fermer les autres applications** : Fermez les autres programmes utilisant la caméra (ex. : WeChat, Zoom)\n4. **Mettre à jour les pilotes** : Mettez à jour les pilotes de la caméra\n5. **Gestionnaire de périphériques** : Vérifiez si la caméra est reconnue dans le gestionnaire de périphériques\n6. **Redémarrer l'application** : Fermez et redémarrez cette application\n\nSi le problème persiste, essayez la reconnaissance d'images ou de vidéos comme alternative."
+    },
+    {
+      "category": "Problèmes de Performance",
+      "keywords": ["lent", "lag", "vitesse", "performance", "délai", "FPS bas", "fréquence d'images", "optimiser"],
+      "synonyms": ["saccades", "trop lent", "réponse lente", "pas fluide", "fps bas", "fréquence basse"],
+      "question": "Que faire si la reconnaissance est lente ?",
+      "answer": "Conseils pour améliorer la vitesse de reconnaissance :\n\n1. **Réduire la résolution** : Diminuez la résolution des images/vidéos d'entrée\n2. **Fermer les autres programmes** : Libérez les ressources CPU/GPU\n3. **Utiliser le GPU** : Si vous avez un GPU NVIDIA, assurez-vous que CUDA est disponible\n4. **Réduire les cibles** : Trop de gestes dans le cadre réduira la vitesse\n5. **Mettre à niveau le matériel** : Un CPU ou GPU plus rapide améliore significativement les performances\n\nCe système utilise YOLOv8n (version nano), optimisé pour le temps réel, offrant de bonnes performances même sur des CPU classiques."
+    },
+    {
+      "category": "Stack Technique",
+      "keywords": ["technologie", "framework", "quoi", "Python", "Gradio", "bibliothèque", "dépendances"],
+      "synonyms": ["choix techniques", "quoi utilisé", "quelle techno", "quel framework", "construit avec"],
+      "question": "Quelles technologies le système utilise-t-il ?",
+      "answer": "Stack technique du système :\n\n- **Apprentissage profond** : PyTorch 2.x + Ultralytics 8.x\n- **Modèle de détection** : YOLOv8n\n- **Interface frontend** : Gradio 4.x\n- **Traitement d'images** : OpenCV 4.x\n- **Base de données** : SQLite (stockage local)\n- **Langage de programmation** : Python\n\nC'est une application d'apprentissage profond de bout en bout typique, construite entièrement avec l'écosystème Python, de l'inférence du modèle à l'interface utilisateur."
+    }
+  ],
+  "default_response": "Désolé, je ne peux pas comprendre votre question pour le moment. Vous pouvez essayer ces questions :\n\n1. Qu'est-ce que ce système ?\n2. Quels gestes sont supportés ?\n3. Comment améliorer la précision de reconnaissance ?\n4. Qu'est-ce que YOLO ?\n5. Qu'est-ce que le CNN ?\n6. Quelles sont les informations du modèle ?\n7. Que faire si la caméra ne s'ouvre pas ?\n8. Que faire si la reconnaissance est lente ?\n9. Quelles technologies le système utilise-t-il ?\n\nVeuillez entrer une question connexe, je ferai de mon mieux pour vous aider !"
+}
