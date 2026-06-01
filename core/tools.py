@@ -211,9 +211,7 @@ def query_model_metrics(query: str) -> str:
     t0 = time.time()
     logger.debug("tool query_model_metrics: START | query=%r", query)
     try:
-        results_path = os.path.join(
-            config.BASE_DIR, "runs", "detect", "train4", "results.csv"
-        )
+        results_path = config.TRAIN_RESULTS_PATH
         metrics = {}
         if os.path.exists(results_path):
             with open(results_path, "r", encoding="utf-8") as f:
@@ -229,9 +227,7 @@ def query_model_metrics(query: str) -> str:
                     for h, v in zip(headers, last_row):
                         metrics[h] = v
 
-        args_path = os.path.join(
-            config.BASE_DIR, "runs", "detect", "train4", "args.yaml"
-        )
+        args_path = config.TRAIN_ARGS_PATH
         args = {}
         if os.path.exists(args_path):
             with open(args_path, "r", encoding="utf-8") as f:
@@ -312,7 +308,8 @@ def query_code(function_name: str) -> str:
         try:
             with open(fpath, "r", encoding="utf-8") as f:
                 lines = f.readlines()
-        except Exception:
+        except Exception as e:
+            logger.debug("query_code: read %s failed: %s", fpath, e)
             continue
 
         fname = os.path.relpath(fpath, config.BASE_DIR)
@@ -500,6 +497,3 @@ def build_tool_registry(retriever=None):
     ]
 
     return registry
-
-
-TOOL_REGISTRY = build_tool_registry(retriever=None)

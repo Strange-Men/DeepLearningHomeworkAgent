@@ -45,6 +45,10 @@ KNOWLEDGE_BASE_PATHS = {
     "fr": os.path.join(DATA_DIR, "knowledge_base_fr.json"),
 }
 
+# 检测参数
+VIDEO_CONF_THRESHOLD = 0.5
+CAMERA_TIMER_INTERVAL = 0.033
+
 # 检测结果保存目录
 RESULTS_DIR = os.path.join(BASE_DIR, "results")
 HISTORY_VIDEOS_DIR = os.path.join(DATA_DIR, "history_videos")
@@ -64,9 +68,6 @@ APP_SHARE = False
 
 # Agent配置
 AGENT_SIMILARITY_THRESHOLD = 0.2
-AGENT_RULE_HIGH_THRESHOLD = 0.3
-AGENT_RULE_LOW_THRESHOLD = 0.2
-AGENT_LLM_ENABLED = True
 AGENT_LLM_TIMEOUT = 15
 AGENT_LLM_MAX_RETRIES = 2
 AGENT_LLM_MAX_HISTORY = 5
@@ -77,8 +78,9 @@ MIMO_BASE_URL = os.getenv("MIMO_BASE_URL", "https://api.mimo.com/v1")
 MIMO_MODEL_NAME = os.getenv("MIMO_MODEL_NAME", "mimo-2.5-pro")
 
 if not MIMO_API_KEY:
-    print("[WARNING] MIMO_API_KEY not set. LLM layer disabled. "
-          "Set it in .env file.")
+    logging.warning(
+        "MIMO_API_KEY not set. LLM layer disabled. Set it in .env file."
+    )
 
 # Agent RAG 配置
 AGENT_RAG_ENABLED = True

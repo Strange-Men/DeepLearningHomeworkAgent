@@ -48,7 +48,7 @@
 ├── app.py              # Gradio UI 薄壳（仅布局+事件绑定）
 ├── config.py           # 全局配置
 ├── core/               # 核心业务
-│   ├── agent.py        # AgentOrchestrator (Agent Loop) + GestureAgent (规则层降级)
+│   ├── agent.py        # LangChainAgent (手动 ReAct 解析 + 四级降级链) + GestureAgent (规则层降级)
 │   ├── llm.py          # LLM 通信层（MiMo API、重试、熔断）
 │   ├── tools.py        # 工具注册表 + 工具函数
 │   ├── retrieval.py    # 知识库检索（TF-IDF / 向量检索抽象接口）
@@ -64,13 +64,13 @@
 └── specs/              # 规格文档
 ```
 
-### Agent 架构（v3: LangChain ReAct Agent + Chroma RAG）
-- **Agent**: LangChain ReAct Agent，LLM 自主决策调用工具，循环直到生成 final_answer
+### Agent 架构（v3: LangChain ChatOpenAI + 手动 ReAct 解析 + Chroma RAG）
+- **Agent**: LangChain ChatOpenAI 调用 + 手动 ReAct 解析（正则提取 Thought/Action/Final Answer）+ 多轮工具调用
 - **RAG 检索**: ChromaDB 向量数据库 + sentence-transformers (all-MiniLM-L6-v2) 嵌入
-- **四级降级链**: LangChain Agent → LLM纯回答 → TF-IDF规则层 → 默认兜底
+- **四级降级链**: LLM+Tools → LLM纯回答 → TF-IDF规则层 → 默认兜底
 - **工具集**: LangChain Tool 封装（query_history, query_model_metrics, query_code, search_knowledge_base）
 - **快速路径**: 简单问题（打招呼、系统介绍等）在 Agent 入口预判，直接走 L2 纯 LLM 回答
-- **性能约束**: max_iterations=3, request_timeout=15s，简单问题 <10s，复杂问题 <30s
+- **安全守卫**: AGENT_MAX_TURNS=3, AGENT_MAX_TOOL_CALLS=6, AGENT_MAX_SAME_CALLS=2, AGENT_MAX_PARSE_FAILS=2
 - 详见 `AgentMaker.md`
 
 ### 命名规范

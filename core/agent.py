@@ -219,8 +219,69 @@ class LangChainAgent:
 
     # ── L1: 直接 LLM + 手动工具调度 ────────────────────
 
+    def _build_message_context(
+        self, system_prompt: str, user_msg: str,
+        tool_results_context: list, last_observation: str = ""
+    ) -> str:
+        """构建多轮工具调用的消息上下文。"""
+        parts = [system_prompt, user_msg]
+        if tool_results_context:
+            parts.append("\n\n".join(tool_results_context))
+        if last_observation:
+            parts.append(last_observation)
+        return "\n\n".join(parts)
+
+    def _ask_followup_clarify(
+        self, question: str, raw_output: str, tool_names: str
+    ) -> str:
+        """解析失败时，用 followup LLM 追问以获取合法格式输出。"""
+        if not self._followup_llm:
+            logger.debug("_ask_followup_clarify: no followup_llm, skip")
+            return None
+        from langchain_core.messages import HumanMessage
+
+        clarify_prompt = (
+            "你之前的回答格式不正确，无法解析工具调用。\n\n"
+            f"可用工具: [{tool_names}]\n\n"
+            "请严格按以下格式回答（二选一）：\n"
+            "格式A - 需要工具:\n"
+            "Thought: [思考]\n"
+            "Action: [工具名]\n"
+            "Action Input: [输入]\n\n"
+            "格式B - 不需要工具:\n"
+            "Thought: [思考]\n"
+            "Final Answer: [回答]\n\n"
+            f"原始问题: {question}\n"
+            f"你之前的回答: {raw_output[:200]}\n\n"
+            "请重新回答:"
+        )
+        try:
+            t0 = time.time()
+            resp = self._followup_llm.invoke(
+                [HumanMessage(content=clarify_prompt)]
+            )
+            output = resp.content.strip()
+            logger.debug(
+                "_ask_followup_clarify: DONE | %.3fs | %.200r",
+                time.time()-t0, output
+            )
+            return output
+        except Exception as e:
+            logger.debug(
+                "_ask_followup_clarify: FAILED | %.3fs | %s",
+                time.time()-t0, e
+            )
+            return None
+
     def _run_direct_llm_with_tools(self, question: str, lang: str) -> str:
-        """直接调用 LLM，手动解析工具调用并执行（支持多轮工具调用）。"""
+        """直接调用 LLM，手动解析工具调用并执行（支持多轮工具调用）。
+
+        安全守卫：
+        - max_turns: LLM 最大调用轮数（AGENT_MAX_TURNS）
+        - max_tool_calls: 工具总调用上限（AGENT_MAX_TOOL_CALLS）
+        - max_same_calls: 相同工具+输入最大重复次数（AGENT_MAX_SAME_CALLS）
+        - max_parse_fails: 连续解析失败次数上限（AGENT_MAX_PARSE_FAILS）
+        """
         if self._lc_llm is None:
             logger.debug("_run_direct_llm_with_tools: lc_llm is None, skip")
             return None
@@ -260,7 +321,14 @@ class LangChainAgent:
             messages = [HumanMessage(content=combined_msg)]
 
             max_turns = config.AGENT_MAX_TURNS
+            max_tool_calls = config.AGENT_MAX_TOOL_CALLS
+            max_same_calls = config.AGENT_MAX_SAME_CALLS
+            max_parse_fails = config.AGENT_MAX_PARSE_FAILS
+
             tool_results_context = []
+            tool_call_count = 0
+            same_call_map = {}  # (tool_name, tool_input) -> count
+            parse_fails = 0
 
             for turn in range(max_turns):
                 logger.debug(
@@ -285,36 +353,84 @@ class LangChainAgent:
 
                 # 尝试解析工具调用
                 tool_name, tool_input = self._extract_tool_call(output)
-                if tool_name and tool_name in self._tool_map:
+                if not tool_name or tool_name not in self._tool_map:
+                    parse_fails += 1
                     logger.debug(
-                        "_run_direct_llm_with_tools: tool call => %s(%r)",
-                        tool_name, tool_input
+                        "_run_direct_llm_with_tools: parse fail %d/%d",
+                        parse_fails, max_parse_fails
                     )
-                    t_tool = time.time()
-                    tool_result = self._tool_map[tool_name](tool_input)
+                    if parse_fails >= max_parse_fails:
+                        logger.debug(
+                            "_run_direct_llm_with_tools: max parse fails reached, break"
+                        )
+                        break
+                    # 解析失败但未达上限，用 followup LLM 追问
+                    output = self._ask_followup_clarify(
+                        question, output, tool_names
+                    )
+                    if output:
+                        messages = [HumanMessage(content=output)]
+                        continue
+                    break
+
+                # 工具调用总数上限
+                tool_call_count += 1
+                if tool_call_count > max_tool_calls:
                     logger.debug(
-                        "_run_direct_llm_with_tools: tool result | %.3fs | len=%d",
-                        time.time()-t_tool, len(str(tool_result))
+                        "_run_direct_llm_with_tools: max tool calls (%d) reached, break",
+                        max_tool_calls
+                    )
+                    break
+
+                # 相同工具+输入重复次数检查
+                call_key = (tool_name, tool_input)
+                same_count = same_call_map.get(call_key, 0) + 1
+                same_call_map[call_key] = same_count
+                if same_count > max_same_calls:
+                    logger.debug(
+                        "_run_direct_llm_with_tools: same call limit (%s, %r) count=%d, skip",
+                        tool_name, tool_input[:50], same_count
                     )
                     tool_results_context.append(
-                        f"[{tool_name}] {tool_result}"
+                        f"[{tool_name}] 已查询过相同内容，请基于已有结果回答。"
                     )
-
-                    # 将工具结果注入下一轮对话
                     observation = (
-                        f"Observation: {tool_result}\nThought:"
+                        "Observation: 已查询过相同内容，请基于已有结果回答。\n"
+                        "Thought:"
                     )
-                    messages = [
-                        HumanMessage(
-                            content=f"{combined_msg}\n\n"
-                            + "\n\n".join(tool_results_context)
-                            + f"\n\n{observation}"
-                        ),
-                    ]
+                    messages = [HumanMessage(
+                        content=self._build_message_context(
+                            combined_msg, "", tool_results_context, observation
+                        )
+                    )]
                     continue
 
-                # 没有工具调用也没有 Final Answer → 不再循环
-                break
+                # 执行工具
+                logger.debug(
+                    "_run_direct_llm_with_tools: tool call #%d => %s(%r)",
+                    tool_call_count, tool_name, tool_input
+                )
+                t_tool = time.time()
+                tool_result = self._tool_map[tool_name](tool_input)
+                logger.debug(
+                    "_run_direct_llm_with_tools: tool result | %.3fs | len=%d",
+                    time.time()-t_tool, len(str(tool_result))
+                )
+                tool_results_context.append(
+                    f"[{tool_name}] {tool_result}"
+                )
+                parse_fails = 0  # 工具调用成功，重置解析失败计数
+
+                # 将工具结果注入下一轮对话
+                observation = (
+                    f"Observation: {tool_result}\nThought:"
+                )
+                messages = [HumanMessage(
+                    content=self._build_message_context(
+                        combined_msg, "", tool_results_context, observation
+                    )
+                )]
+                continue
 
             # 循环结束：用所有工具结果做最终 followup
             if tool_results_context:

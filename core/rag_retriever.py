@@ -46,7 +46,8 @@ def _extract_code_functions(base_dir):
         try:
             with open(fpath, "r", encoding="utf-8") as f:
                 content = f.read()
-        except Exception:
+        except Exception as e:
+            logger.debug("_extract_code_functions: read %s failed: %s", fpath, e)
             continue
         fname = os.path.relpath(fpath, base_dir)
         # 提取函数和类定义及其 docstring
@@ -178,16 +179,15 @@ class ChromaRetriever:
         # 主动加载嵌入模型（首次启动时通过镜像下载并缓存）
         try:
             self._ensure_model()
-        except Exception:
+        except Exception as e:
             # 模型加载失败不阻塞启动，后续 build_index 会再次尝试
-            pass
+            logger.debug("ChromaRetriever init: model load deferred: %s", e)
 
     def _ensure_model(self):
         """延迟加载嵌入模型（含重试机制）。"""
         if self._model is None:
             t0 = time.time()
             logger.debug("ChromaRetriever._ensure_model: loading model...")
-            import os
             # 设置 HuggingFace 镜像
             if config.HF_ENDPOINT:
                 os.environ["HF_ENDPOINT"] = config.HF_ENDPOINT
@@ -279,8 +279,10 @@ class ChromaRetriever:
         # 删除旧集合重建
         try:
             self._client.delete_collection(collection_name)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(
+                "build_index: delete old collection skipped: %s", e
+            )
         self._collection = self._client.create_collection(
             name=collection_name,
             metadata={"hnsw:space": "cosine"},

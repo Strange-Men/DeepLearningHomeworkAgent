@@ -1,7 +1,7 @@
 # Agent 重构架构设计文档
 
-> 最后更新：2026-05-28
-> 版本：v3.0 — LangChain ReAct Agent + Chroma RAG 架构
+> 最后更新：2026-06-01
+> 版本：v3.0 — LangChain ChatOpenAI + 手动 ReAct 解析 + Chroma RAG 架构
 
 ---
 
@@ -12,10 +12,10 @@
 ```
 旧架构 (v1):  规则匹配(主力) + LLM(兜底) + 关键词选工具
 旧架构 (v2):  自建 Agent Loop + TF-IDF 检索
-新架构 (v3):  LangChain ReAct Agent + Chroma 向量 RAG
+新架构 (v3):  LangChain ChatOpenAI + 手动 ReAct 解析 + Chroma 向量 RAG
 ```
 
-使用 LangChain 框架的标准 ReAct Agent，LLM 自主决策调用工具。知识库检索从 TF-IDF 升级为 ChromaDB 向量数据库 + sentence-transformers 嵌入模型，实现真正的语义检索。
+使用 LangChain ChatOpenAI 调用 MiMo API，LLM 输出 ReAct 格式（Thought/Action/Action Input/Final Answer），代码正则解析并手动调度工具，支持多轮工具调用。知识库检索从 TF-IDF 升级为 ChromaDB 向量数据库 + sentence-transformers 嵌入模型，实现真正的语义检索。
 
 ### 1.2 整体架构图
 
@@ -30,7 +30,7 @@
 │              core/agent.py (LangChainAgent)              │
 │                                                         │
 │   ┌─────────────────────────────────────────────┐       │
-│   │        LangChain ReAct Agent                │       │
+│   │     手动 ReAct 解析 (正则提取)               │       │
 │   │  ┌──────────┐ ┌──────────┐ ┌──────────┐    │       │
 │   │  │search_kb │ │query_hist│ │query_model│    │       │
 │   │  └──────────┘ └──────────┘ └──────────┘    │       │
@@ -40,10 +40,11 @@
 │   └─────────────────────────────────────────────┘       │
 │                         │                               │
 │   ┌─────────────────────v───────────────────────┐       │
-│   │     AgentExecutor (LangChain 内置循环)       │       │
+│   │     多轮工具调用循环 (for turn in max_turns) │       │
 │   │   1. LLM 接收问题 + 工具描述                 │       │
-│   │   2. LLM 自主决定调用工具 (tool_calls)       │       │
-│   │   3. 工具执行结果注入，循环直到最终回答       │       │
+│   │   2. 正则解析 Action/Action Input            │       │
+│   │   3. 执行工具，结果注入下一轮，循环           │       │
+│   │   4. 解析到 Final Answer 则返回              │       │
 │   └─────────────────────────────────────────────┘       │
 │                                                         │
 │   ┌─────────────────────────────────────────────┐       │
@@ -74,22 +75,26 @@
 [1] LangChainAgent.answer(question, lang)
   │
   v
-[2] 构建 System Prompt:
-    - 角色定义 + 工具 Schema 列表 + JSON 输出格式约束
+[2] 快速路径判断 → 非简单问题，走 L1
   │
   v
-[3] Agent Loop 第 1 轮:
-    LLM → {"action": "tool_call", "tool": "query_history", "args": {"query": "昨天"}}
-    执行工具 → "昨天共识别 5 次..."
+[3] L1 _run_direct_llm_with_tools: 构建 System Prompt
+    - 角色定义 + 工具描述 + ReAct 格式约束
   │
   v
-[4] Agent Loop 第 2 轮:
-    LLM → {"action": "tool_call", "tool": "query_model_metrics", "args": {"query": "精度"}}
-    执行工具 → "mAP@0.5 = 99.5%..."
+[4] 多轮工具调用 第 1 轮:
+    LLM → "Thought: 需要查询历史\nAction: query_history\nAction Input: 昨天"
+    正则解析 → 执行 query_history("昨天") → "昨天共识别 5 次..."
   │
   v
-[5] Agent Loop 第 3 轮:
-    LLM → {"action": "final_answer", "answer": "昨天您共识别了5次手势。模型精度 mAP@0.5 达到99.5%..."}
+[5] 多轮工具调用 第 2 轮:
+    LLM → "Thought: 需要查精度\nAction: query_model_metrics\nAction Input: 精度"
+    正则解析 → 执行 query_model_metrics("精度") → "mAP50: 99.5%..."
+  │
+  v
+[6] 多轮工具调用 第 3 轮:
+    LLM → "Thought: 已有足够信息\nFinal Answer: 昨天您共识别了5次手势..."
+    正则解析 → 返回最终回答
   │
   v
 返回给用户
@@ -153,7 +158,7 @@ agent.clear_history() -> None
 
 ### 3.1 Agent 架构
 
-使用 LangChain 的 `create_react_agent` 构建 ReAct Agent。Agent 自主决策调用工具，LangChain 框架内置处理循环、工具调用、结果注入。
+使用 LangChain ChatOpenAI 调用 LLM，LLM 输出 ReAct 格式文本（Thought/Action/Action Input/Final Answer），代码通过正则表达式解析并手动调度工具。多轮工具调用通过 `for turn in range(max_turns)` 循环实现，工具结果注入下一轮消息上下文。
 
 ### 3.2 工具定义
 
@@ -171,11 +176,12 @@ Tool(
 
 ### 3.3 终止条件
 
-由 LangChain AgentExecutor 内置的 `max_iterations` 参数控制：
-- `max_iterations=3`：最大推理轮次（从 5 降至 3，避免简单问题超时）
-- `request_timeout=15s`：单次 LLM 调用超时（从 30s 降至 15s）
-- `handle_parsing_errors=True`：自动处理解析错误并重试
-- 超限时 AgentExecutor 自动返回已有结果
+由 config.py 中的安全守卫参数控制：
+- `AGENT_MAX_TURNS=3`：最大 LLM 调用轮次
+- `AGENT_MAX_TOOL_CALLS=6`：工具总调用上限
+- `AGENT_MAX_SAME_CALLS=2`：相同工具+输入最大重复次数
+- `AGENT_MAX_PARSE_FAILS=2`：连续解析失败上限，触发后用 followup LLM 追问
+- 超限后自动用已收集的工具结果做 followup 生成最终回答
 
 ### 3.4 快速路径
 
@@ -187,7 +193,11 @@ Tool(
 
 ### 3.5 工具调用策略
 
-LangChain Agent 原生支持 tool_calls。MiMo API 若支持 function calling 则使用原生格式，否则使用 ReAct prompt 模式（Thought/Action/Observation）。
+LLM 输出 ReAct 格式文本，代码正则解析：
+- `_extract_final_answer(text)` → 提取 `Final Answer: ...`
+- `_extract_tool_call(text)` → 提取 `Action: tool_name` + `Action Input: input`
+- 解析失败时通过 `_ask_followup_clarify()` 用 followup LLM 追问要求正确格式
+- 相同工具+输入重复调用超过上限时，提示 LLM 基于已有结果回答
 
 ---
 
@@ -269,10 +279,9 @@ collection = client.get_or_create_collection("knowledge")
 | 错误脱敏 | 日志中过滤 API Key |
 | 对话历史 | deque(maxlen=10)，5 轮 |
 
-### 6.3 Tool Calling 兼容
+### 6.3 Tool Calling 方式
 
-如果 MiMo API 支持原生 `tool_calls`，则使用 LangChain 的 `ChatOpenAI` 原生 tool_calls 模式。
-否则使用 ReAct prompt 模式（Thought/Action/Observation），由 LangChain 框架自动处理。
+使用 ReAct prompt 模式（Thought/Action/Action Input/Final Answer），不依赖 MiMo API 的原生 tool_calls 支持。System Prompt 中明确定义输出格式约束，代码正则解析 LLM 输出并手动调度工具执行。
 
 ---
 
@@ -285,7 +294,7 @@ tests/
 ├── test_agent_loop.py      # LangChainAgent 单元测试（Mock LLM）
 ├── test_tools.py           # 工具函数测试
 ├── test_retrieval.py       # 检索器测试
-├── test_llm.py             # LLM 层测试（Mock HTTP）
+├── test_e2e.py             # E2E 链路验证（Mock LLM）
 └── conftest.py             # 共享 fixtures
 ```
 
@@ -336,9 +345,22 @@ RAG_CHUNK_SIZE = 500
 RAG_CHUNK_OVERLAP = 50
 ```
 
-### 保留项
+### 新增项
 
-所有现有配置保留不变（MODEL_PATH, DB_PATH, MIMO_*, AGENT_LLM_*, AGENT_RAG_* 等）。
+```python
+# 检测参数
+VIDEO_CONF_THRESHOLD = 0.5       # 视频识别置信度阈值
+CAMERA_TIMER_INTERVAL = 0.033    # 摄像头帧获取间隔（~30fps）
+
+# 模型训练结果路径
+TRAIN_RESULTS_PATH = os.path.join(BASE_DIR, "runs", "detect", "train4", "results.csv")
+TRAIN_ARGS_PATH = os.path.join(BASE_DIR, "runs", "detect", "train4", "args.yaml")
+```
+
+### 移除项
+
+- `AGENT_LLM_ENABLED`：未使用的功能标志，已删除
+- `AGENT_RULE_HIGH_THRESHOLD` / `AGENT_RULE_LOW_THRESHOLD`：未使用的阈值，已删除
 
 ---
 
@@ -348,8 +370,7 @@ RAG_CHUNK_OVERLAP = 50
 
 | 包 | 用途 |
 |----|------|
-| `langchain` | Agent 框架（ReAct Agent, AgentExecutor） |
-| `langchain-classic` | LangChain 经典模块（create_react_agent, AgentExecutor） |
+| `langchain` | Agent 框架（LangChain ChatOpenAI, Tool） |
 | `langchain-community` | LangChain 社区集成 |
 | `langchain-openai` | LangChain OpenAI 兼容接口（ChatOpenAI） |
 | `chromadb` | 向量数据库（存储文档嵌入） |
@@ -372,12 +393,12 @@ RAG_CHUNK_OVERLAP = 50
 
 | 风险 | 缓解 |
 |------|------|
-| MiMo 不稳定输出 JSON | 三层解析 + 重试 + 降级 |
-| Agent Loop 死循环 | max_iterations=3 + request_timeout=15s 双重保障 |
+| MiMo 不稳定输出格式 | 正则解析 + followup LLM 追问 + 四级降级 |
+| 工具调用死循环 | AGENT_MAX_TURNS=3 + AGENT_MAX_TOOL_CALLS=6 + AGENT_MAX_SAME_CALLS=2 三重保障 |
 | LLM 调用延迟高 | 快速路径跳过 Agent + MAX_TURNS=3 + 15s 超时 |
 | 简单问题被误判需工具 | 快速路径关键词预判，打招呼/系统介绍直接走 L2 |
-| 降级到规则层质量低 | 10 条知识库可覆盖核心问题，未来升级向量检索 |
-| 重构引入 Bug | 对外接口不变，逐模块替换，保留 fallback |
+| 降级到规则层质量低 | Chroma 向量 RAG 语义检索 + TF-IDF 兜底 |
+| 重构引入 Bug | 对外接口不变，逐模块替换，保留 fallback，56 个测试用例 |
 
 ---
 

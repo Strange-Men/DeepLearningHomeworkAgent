@@ -26,6 +26,8 @@ from core.agent import LangChainAgent
 from core.history import HistoryManager
 from utils.image_utils import pil_to_cv2, cv2_to_pil
 
+import atexit
+import threading
 import warnings
 warnings.filterwarnings("ignore", message=".*Torch was not compiled with flash attention.*")
 warnings.filterwarnings("ignore", message=".*pkg_resources is deprecated.*")
@@ -140,7 +142,7 @@ def process_video_fn(video):
     # 每个类别出现的帧数（同一帧内同一类别只计1次）
     class_frame_counts = {}
     frame_count = 0
-    conf_threshold = 0.5
+    conf_threshold = config.VIDEO_CONF_THRESHOLD
     names = detector.model.names
     while True:
         ret, frame = cap.read()
@@ -197,37 +199,76 @@ camera_running = False
 camera_cap = None
 camera_frame_count = 0
 CAMERA_SAVE_INTERVAL = 30
+_camera_lock = threading.Lock()
+
+
+def _cleanup_camera():
+    """进程退出时释放摄像头资源。"""
+    global camera_cap, camera_running
+    with _camera_lock:
+        camera_running = False
+        if camera_cap is not None:
+            camera_cap.release()
+            camera_cap = None
+
+
+atexit.register(_cleanup_camera)
 
 
 def start_camera():
-    """启动摄像头。"""
+    """启动摄像头（自动重试最多 3 次）。"""
     global camera_running, camera_cap, camera_frame_count
-    camera_running = True
-    camera_cap = cv2.VideoCapture(0)
-    camera_frame_count = 0
-    if not camera_cap.isOpened():
+    with _camera_lock:
+        camera_running = True
+        camera_frame_count = 0
+    max_retries = 3
+    for attempt in range(1, max_retries + 1):
+        cap = cv2.VideoCapture(0)
+        if cap.isOpened():
+            with _camera_lock:
+                camera_cap = cap
+            return None, t("msg.camera_started")
+        logger.warning(
+            "Camera open attempt %d/%d failed", attempt, max_retries
+        )
+        cap.release()
+        if attempt < max_retries:
+            time.sleep(0.5)
+    with _camera_lock:
         camera_running = False
-        return None, t("msg.cannot_open_camera")
-    return None, t("msg.camera_started")
+    return None, t("msg.cannot_open_camera")
 
 
 def stop_camera():
     """停止摄像头。"""
     global camera_running, camera_cap
-    camera_running = False
-    if camera_cap is not None:
-        camera_cap.release()
-        camera_cap = None
+    with _camera_lock:
+        camera_running = False
+        if camera_cap is not None:
+            camera_cap.release()
+            camera_cap = None
     return None, t("msg.camera_stopped")
 
 
 def capture_frame():
-    """获取摄像头帧并检测。"""
+    """获取摄像头帧并检测（读取失败自动重试 3 次）。"""
     global camera_frame_count
-    if not camera_running or camera_cap is None:
-        return None, t("msg.camera_not_started")
-    ret, frame = camera_cap.read()
-    if not ret:
+    with _camera_lock:
+        if not camera_running or camera_cap is None:
+            return None, t("msg.camera_not_started")
+        cap = camera_cap
+    frame = None
+    max_retries = 3
+    for attempt in range(max_retries):
+        ret, frame = cap.read()
+        if ret and frame is not None:
+            break
+        logger.warning(
+            "Camera read attempt %d/%d failed", attempt + 1, max_retries
+        )
+        if attempt < max_retries - 1:
+            time.sleep(0.1)
+    if frame is None:
         return None, t("msg.cannot_read_frame")
 
     # 直接运行模型预测以获取检测详情
@@ -281,7 +322,8 @@ def agent_answer(message, chat_history):
         chat_history.append({"role": "user", "content": message})
         chat_history.append({"role": "assistant", "content": response})
         return chat_history, ""
-    except Exception:
+    except Exception as e:
+        logger.error("agent_answer failed: %s", e)
         chat_history.append({"role": "user", "content": message})
         chat_history.append({
             "role": "assistant",
@@ -400,7 +442,8 @@ def change_language(lang):
     # 获取快捷问题
     try:
         quick_qs = agent.get_quick_questions()
-    except Exception:
+    except Exception as e:
+        logger.warning("change_language: get_quick_questions failed: %s", e)
         quick_qs = []
     q_btns = []
     for i in range(6):
@@ -829,7 +872,7 @@ with gr.Blocks(title=t("app.title")) as demo:
             cam_stop_btn = gr.Button(t("btn.stop"), variant="stop")
         cam_output = gr.Image(type="pil", label=t("label.realtime_frame"))
         cam_info = gr.Textbox(label=t("label.status_info"), interactive=False)
-        cam_timer = gr.Timer(0.033)
+        cam_timer = gr.Timer(config.CAMERA_TIMER_INTERVAL)
         cam_timer.tick(
             fn=capture_frame, inputs=[], outputs=[cam_output, cam_info]
         )
@@ -851,7 +894,8 @@ with gr.Blocks(title=t("app.title")) as demo:
             send_btn = gr.Button(t("btn.send"), variant="primary", scale=1)
         try:
             quick_qs = agent.get_quick_questions()
-        except Exception:
+        except Exception as e:
+            logger.warning("init quick_qs failed: %s", e)
             quick_qs = []
         quick_btns_row1 = []
         quick_btns_row2 = []

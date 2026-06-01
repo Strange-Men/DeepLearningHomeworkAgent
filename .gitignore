@@ -32,3 +32,6 @@ data/hf_models/
 
 # 日志
 *.log
+
+# 大文件
+Essay.docx

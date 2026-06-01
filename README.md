@@ -27,7 +27,7 @@
 | 前端界面 | Gradio | >= 4.0 |
 | 图像处理 | OpenCV | >= 4.8 |
 | 数据库 | SQLite | Python 内置 |
-| Agent 框架 | LangChain (ReAct Agent + AgentExecutor) | >= 0.3.0 |
+| Agent 框架 | LangChain ChatOpenAI + 手动 ReAct 解析 | >= 0.3.0 |
 | LLM 接口 | LangChain ChatOpenAI (兼容 MiMo API) | >= 0.2.0 |
 | 向量数据库 | ChromaDB | >= 0.5.0 |
 | 文本嵌入 | sentence-transformers (all-MiniLM-L6-v2) | >= 2.7.0 |
@@ -146,25 +146,27 @@ python app.py
 
 - **相似手势混淆**：部分手势在视觉上相似（如 I 和 L、V 和 W），在低置信度或遮挡场景下可能出现误判
 - **视频编码兼容性**：视频识别结果默认输出 H.264 MP4，但部分浏览器可能不支持 AVI 回退格式，需确保系统已安装 ffmpeg
-- **摄像头独占问题**：摄像头被其他程序占用时无法打开，当前仅提示错误，未实现自动重试
+- **摄像头独占问题**：摄像头被其他程序占用时自动重试 3 次（间隔 0.5s），仍失败则提示错误
 - **历史记录详情展示**：摄像头模式下的识别结果未保存图片/视频到历史记录，详情页无预览
 
 ---
 
 ## 开发进度
 
-**v3.0 已完成**，升级为 LangChain ReAct Agent + Chroma RAG 架构：
+**v3.0 已完成**，升级为 LangChain ChatOpenAI + 手动 ReAct 解析 + Chroma RAG 架构：
 
 - 图片/视频/摄像头三种识别模式均已跑通
-- Agent 问答采用 LangChain ReAct Agent 架构：LLM 自主决策调用工具，LangChain 框架内置循环
-- 四级降级链：L1（LangChain Agent + Tools）→ L2（纯 LLM）→ L3（TF-IDF 规则层）→ L4（默认兜底）
+- Agent 问答采用手动 ReAct 解析架构：LLM 输出 Thought/Action/Action Input 格式，代码正则解析并执行工具，支持多轮工具调用
+- 四级降级链：L1（LLM + 手动工具调度）→ L2（纯 LLM）→ L3（TF-IDF 规则层）→ L4（默认兜底）
 - Agent 集成 4 个 LangChain 工具：查询历史记录、模型训练指标、源码搜索、知识库搜索
+- 多轮工具调用安全守卫：最大轮次、工具调用上限、重复调用检测、解析失败追问
 - RAG 检索升级为 ChromaDB 向量数据库 + sentence-transformers (all-MiniLM-L6-v2) 嵌入，实现语义检索
 - TF-IDF 检索器保留作为 L3 降级路径
 - LLM 通信层：通过 LangChain ChatOpenAI 兼容接口调用 MiMo API，指数退避重试、熔断器（3 次失败 → 60s 冷却）
 - 国际化（i18n）支持 4 种语言：简体中文、繁體中文、English、Français
 - 每种语言配有独立知识库和 UI 翻译文件，支持运行时切换
 - API 密钥通过 `.env` 文件管理，代码中无硬编码
-- 历史记录完整实现 CRUD 操作
+- 历史记录完整实现 CRUD 操作（SQLite 连接安全关闭）
 - 视频输出自动转码为浏览器可播放格式
-- 测试覆盖：Agent Loop、检索器、工具函数、E2E 链路测试
+- 摄像头自动重试（启动 3 次 + 读帧 3 次）+ 进程退出自动释放
+- 测试覆盖：Agent Loop、检索器、工具函数、E2E 链路测试（56 个用例全部通过）

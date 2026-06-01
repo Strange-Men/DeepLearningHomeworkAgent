@@ -22,13 +22,12 @@ def _report(name, passed, detail=""):
     print(f"  [{status}] {name}" + (f" — {detail}" if detail else ""))
 
 
-def _make_agent(llm=None, agent_executor=None, tfidf_retriever=None,
+def _make_agent(llm=None, tfidf_retriever=None,
                 rag_retriever=None, lang="zh-CN"):
     """创建带 Mock 组件的 LangChainAgent。"""
     agent = LangChainAgent.__new__(LangChainAgent)
     agent._lang = lang
     agent._llm = llm or MockLLM(["mock answer"])
-    agent._agent_executor = agent_executor
     agent._tfidf_retriever = tfidf_retriever or MagicMock()
     agent._rag_retriever = rag_retriever or MagicMock()
     return agent
@@ -264,7 +263,6 @@ def test_9_language_reload():
             agent = _make_agent(lang=lang)
             agent._build_rag_index = MagicMock()
             agent._load_tfidf_kb = MagicMock()
-            agent._build_agent = MagicMock(return_value=MagicMock())
             agent._llm = MagicMock()
             agent.reload(lang)
             details.append(f"{lang}:OK")
