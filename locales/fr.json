@@ -72,10 +72,19 @@
   "agent.default_response": "Désolé, je ne comprends pas votre question.",
   "agent.try_these": "Essayez ces questions :",
   "agent.input_related": "Veuillez entrer une question connexe, je ferai de mon mieux pour répondre !",
+  "agent.degradation_hint": "\n\n> [Note : Le service Q&A est actuellement indisponible. La réponse ci-dessus provient de la base de connaissances locale et peut être incomplète.]",
+  "agent.init_failed": "L'initialisation du service Q&A a échoué. Veuillez vérifier la configuration.",
+  "agent.parse_retry_hint": "Votre réponse précédente n'était pas un JSON valide. Veuillez répondre uniquement avec un objet JSON au format spécifié.",
+  "agent.loop_detected_hint": "Vous avez déjà demandé cette information. Générez une réponse finale maintenant.",
+  "agent.tool_not_found": "L'outil \"{name}\" n'existe pas.",
+  "agent.tool_error": "Erreur d'exécution de l'outil {name} : {error}",
+  "agent.summary_prompt": "En vous basant sur les informations collectées ci-dessous, générez une réponse complète et concise.",
+  "agent.system_prompt": "Vous êtes un assistant intelligent pour un système de reconnaissance de gestes. Vous pouvez appeler des outils pour interroger les données du système, puis répondre aux questions de l'utilisateur.",
+  "agent.available_tools": "## Outils Disponibles",
+  "agent.output_format": "## Format de Sortie\nVous DEVEZ produire un objet JSON, l'un de :\n1. Appeler un outil : {\"action\": \"tool_call\", \"tool\": \"nom_outil\", \"args\": {\"param\": \"valeur\"}}\n2. Réponse finale : {\"action\": \"final_answer\", \"answer\": \"votre réponse\"}",
+  "agent.rules": "## Règles\n- Appelez UN outil à la fois\n- Attendez le résultat de l'outil avant de décider de l'étape suivante\n- Si vous avez assez d'informations, produisez directement final_answer\n- N'inventez pas de fonctionnalités ou de données que le système ne possède pas",
+  "agent.lang_instruction": "## Langue\nVous DEVEZ répondre en {lang}.",
 
-  "intent.enter_question": "Veuillez entrer votre question.",
-  "intent.fallback_hint": "\n\n> [Note : Le service Q&A est actuellement indisponible. La réponse ci-dessus provient de la base de connaissances locale et peut être incomplète.]",
-  "intent.unified_fallback": "Cette question dépasse ma base de connaissances locale. Voici ce avec quoi je peux vous aider :\n\n1. **Fonctionnalités** : Système de reconnaissance de gestes en temps réel basé sur YOLOv8n, supportant les modes image/vidéo/caméra\n2. **Gestes supportés** : A, D, I, L, V, W, Y, chiffre 5, chiffre 7, I love you\n3. **Principes techniques** : Détection d'objets YOLO, réseaux de neurones convolutifs CNN, et connaissances connexes\n4. **Aide à l'utilisation** : Conseils de reconnaissance, problèmes de caméra, optimisation des performances\n\nVeuillez essayer de poser une question dans ces domaines, je ferai de mon mieux pour vous aider !",
 
   "llm.system_prompt": "Vous êtes un assistant Q&A professionnel pour un système de reconnaissance de gestes. Vos responsabilités :\n1. Répondre aux questions sur ce système de reconnaissance de gestes (fonctionnalités, utilisation, principes techniques)\n2. Répondre aux questions techniques liées à la reconnaissance de gestes, la détection d'objets YOLO et le CNN\n3. Garder les réponses concises, précises et bien structurées\n\nContraintes :\n- Ne pas inventer de fonctionnalités que le système ne possède pas\n- Ne pas répondre aux questions ouvertes sans rapport (programmation, traduction, bavardage)\n- Si une question dépasse vos connaissances, dites-le honnêtement\n\nUtilisez le formatage Markdown quand c'est approprié.",
   "llm.rag_system_prompt": "Vous êtes un assistant Q&A pour un système de reconnaissance de gestes. Les données suivantes ont été extraites de la base de données et du code du projet. Veuillez répondre aux questions de l'utilisateur en vous basant sur ces données.\n\nRègles importantes :\n1. Utilisez en priorité les données extraites, en citant des chiffres et faits spécifiques\n2. Si les données extraites sont vides ou insuffisantes, répondez à partir de vos connaissances générales sur la reconnaissance de gestes, YOLO, CNN et sujets connexes\n3. N'inventez pas de métriques spécifiques du système (mAP, FPS, etc.), mais vous pouvez expliquer les principes techniques généraux\n4. Gardez les réponses concises et structurées\n5. Ne répondez JAMAIS \"Données pertinentes introuvables\" ou un refus similaire — essayez toujours de donner une réponse utile\n\nUtilisez le formatage Markdown quand c'est approprié.",
@@ -113,9 +122,6 @@
   "tools.unknown_time": "Heure inconnue",
   "tools.gesture_count_short": "gestes : {count}",
   "tools.detection_detail_label": "Détails de détection",
-  "tools.confidence_short": "confiance : {value}",
+  "tools.confidence_short": "confiance : {value}"
 
-  "keywords.history": "reconnaissance,détection,historique,enregistrement,fois,hier,aujourd,récent,semaine,combien,statistiques,recherche",
-  "keywords.model": "modèle,mAP,précision,entraînement,loss,paramètre,batch,epoch,taille entrée,info modèle,métriques",
-  "keywords.code": "code,fonction,implémentation,source,classe,méthode,detect,agent,detector"
 }

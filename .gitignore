@@ -27,6 +27,8 @@ runs/
 results/
 data/history_videos/
 data/history.db
+data/chroma_db/
+data/hf_models/
 
 # 日志
 *.log

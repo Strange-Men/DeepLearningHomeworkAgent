@@ -189,15 +189,16 @@ CREATE TABLE detection_history (
 |------|------|------|------|
 | detector | `detect_image(image)` | numpy数组 | DetectionResult |
 | detector | `detect_frame(frame)` | numpy数组 | (annotated_frame, fps) |
-| agent | `answer(question, language)` | 字符串, 语言代码 | 字符串 |
+| agent | `answer(question, lang)` | 字符串, 语言代码 | 字符串 |
 | history | `add_record(...)` | 检测结果 | record_id |
 | history | `get_records(limit)` | 数量 | List[Record] |
 | history | `delete_record(id)` | record_id | bool |
 | i18n | `set_language(lang)` | 语言代码 | None |
 | i18n | `t(key, **kwargs)` | 翻译键, 参数 | 字符串 |
-| tools | `query_history(db_path)` | 数据库路径 | 历史记录摘要 |
-| tools | `query_model_metrics()` | 无 | 模型训练指标 |
-| tools | `search_knowledge_base(query)` | 查询文本 | 匹配结果 |
+| tools | `query_history(query)` | 查询文本 | 历史记录摘要 |
+| tools | `query_model_metrics(query)` | 查询文本 | 模型训练指标 |
+| tools | `query_code(query)` | 查询文本 | 源码搜索结果 |
+| tools | `search_knowledge_base(query)` | 查询文本 | 知识库匹配结果（Chroma 向量检索） |
 
 ### API示例
 
@@ -212,10 +213,10 @@ result = detector.detect_image(cv2.imread("test.jpg"))
 #   "count": 1
 # }
 
-# Agent问答（双层混合架构）
-from core.agent import HybridAgent
-agent = HybridAgent()  # 自动加载规则层 + LLM 层 + RAG 工具
-answer = agent.answer("支持哪些手势？", language="zh-CN")
+# Agent问答（LangChain ReAct Agent + 四级降级链）
+from core.agent import LangChainAgent
+agent = LangChainAgent()  # 自动加载 LangChain Agent + RAG 工具 + 降级链
+answer = agent.answer("支持哪些手势？", lang="zh-CN")
 
 # 国际化
 from core.i18n import i18n

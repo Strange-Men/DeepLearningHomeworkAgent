@@ -2,10 +2,14 @@
 
 import os
 
+# HuggingFace 国内镜像（必须在所有 HF 相关 import 之前设置）
+os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+
 # 添加 libs 目录到 DLL 搜索路径（解决 OpenH264 加载问题）
 os.add_dll_directory(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'libs'))
 
 import json
+import logging
 import time
 import shutil
 import subprocess
@@ -13,30 +17,27 @@ import cv2
 import gradio as gr
 
 import config
+
+config.setup_logging()
+logger = logging.getLogger(__name__)
 from core.i18n import init as i18n_init, t, set_language, get_language
 from core.detector import GestureDetector
-from core.agent import HybridAgent
+from core.agent import LangChainAgent
 from core.history import HistoryManager
 from utils.image_utils import pil_to_cv2, cv2_to_pil
+
+import warnings
+warnings.filterwarnings("ignore", message=".*Torch was not compiled with flash attention.*")
+warnings.filterwarnings("ignore", message=".*pkg_resources is deprecated.*")
 
 i18n_init()
 
 detector = GestureDetector()
 try:
-    agent = HybridAgent()
+    agent = LangChainAgent()
 except Exception as e:
-    print(t("app.agent_init_warning", error=e))
-
-    class _FallbackAgent:
-        def answer(self, q):
-            return t("app.fallback_agent_msg")
-
-        def get_quick_questions(self):
-            return []
-
-        def clear_history(self):
-            pass
-
+    logger.warning(t("app.agent_init_warning", error=e), exc_info=True)
+    from core.agent import _FallbackAgent
     agent = _FallbackAgent()
 history = HistoryManager()
 
@@ -413,7 +414,7 @@ def change_language(lang):
         gr.update(label="🎬 " + t("tab.video")),   # tab_video
         gr.update(label="📹 " + t("tab.camera")),  # tab_camera
         gr.update(label="🤖 " + t("tab.agent")),   # tab_agent
-        gr.update(label="📋 " + t("tab.history")), # tab_history
+        gr.update(label="📋 " + t("tab.history")),  # tab_history
         gr.update(value=t("app.title")),          # header_title
         gr.update(value=t("app.subtitle")),        # header_subtitle
         gr.update(label=t("label.upload_image")),   # img_input

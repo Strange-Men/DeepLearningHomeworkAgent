@@ -1,565 +1,417 @@
-# Agent 双层混合架构优化框架设计
+# Agent 重构架构设计文档
 
-## 一、现状分析
-
-### 当前问题
-
-| 问题 | 根因 | 影响 |
-|------|------|------|
-| 匹配率低 | 仅靠关键词子串匹配 + 简单计数 | 用户换个说法就匹配不上 |
-| 无法处理开放问题 | 纯规则系统，无生成能力 | 知识库外的问题一律返回默认回答 |
-| 同义词缺失 | keywords 字段手动维护，覆盖面窄 | "怎样提升精度"匹配不到"如何提高识别准确率" |
-| 相似度算法粗糙 | `matched / sqrt(len(keywords))`，忽略词频和语义 | 高频词泛匹配导致误命中 |
-
-### 当前架构
-
-```
-用户问题 --> 关键词子串匹配 --> 命中？--> 返回知识库答案
-                                    |
-                                    +--> 未命中 --> 返回默认回答
-```
+> 最后更新：2026-05-28
+> 版本：v3.0 — LangChain ReAct Agent + Chroma RAG 架构
 
 ---
 
-## 二、目标架构
+## 一、架构总览
 
-### 整体架构图
-
-```
-+--------------------------------------------------------------+
-|                         用户输入                              |
-+------------------------------+-------------------------------+
-                               v
-                      +----------------+
-                      |   预处理模块     |  去停用词、分词、归一化
-                      +-------+--------+
-                              v
-                      +----------------+
-                      |   意图路由器     |  判断走规则层 or LLM层
-                      +---+--------+---+
-                          |        |
-                +---------v--+  +--v----------+
-                |  规则层      |  |  LLM 层      |
-                |  (优化后)    |  |  (MiMo API)  |
-                +-----+------+  +------+-------+
-                      |                |
-                      v                v
-                +-------------------------+
-                |     回答质量评估          |  置信度过滤
-                +------------+------------+
-                             v
-                +-------------------------+
-                |     降级兜底逻辑          |  LLM失败 -> 回退规则层
-                +------------+------------+
-                             v
-                      +--------------+
-                      |   返回回答     |
-                      +--------------+
-```
-
-### 数据流
+### 1.1 核心理念
 
 ```
-用户问题
-  |
+旧架构 (v1):  规则匹配(主力) + LLM(兜底) + 关键词选工具
+旧架构 (v2):  自建 Agent Loop + TF-IDF 检索
+新架构 (v3):  LangChain ReAct Agent + Chroma 向量 RAG
+```
+
+使用 LangChain 框架的标准 ReAct Agent，LLM 自主决策调用工具。知识库检索从 TF-IDF 升级为 ChromaDB 向量数据库 + sentence-transformers 嵌入模型，实现真正的语义检索。
+
+### 1.2 整体架构图
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    app.py (UI 薄壳)                      │
+│   Gradio 界面 → 调用 agent.invoke()                      │
+└────────────────────────┬────────────────────────────────┘
+                         │
+                         v
+┌─────────────────────────────────────────────────────────┐
+│              core/agent.py (LangChainAgent)              │
+│                                                         │
+│   ┌─────────────────────────────────────────────┐       │
+│   │        LangChain ReAct Agent                │       │
+│   │  ┌──────────┐ ┌──────────┐ ┌──────────┐    │       │
+│   │  │search_kb │ │query_hist│ │query_model│    │       │
+│   │  └──────────┘ └──────────┘ └──────────┘    │       │
+│   │  ┌──────────┐                               │       │
+│   │  │query_code│                               │       │
+│   │  └──────────┘                               │       │
+│   └─────────────────────────────────────────────┘       │
+│                         │                               │
+│   ┌─────────────────────v───────────────────────┐       │
+│   │     AgentExecutor (LangChain 内置循环)       │       │
+│   │   1. LLM 接收问题 + 工具描述                 │       │
+│   │   2. LLM 自主决定调用工具 (tool_calls)       │       │
+│   │   3. 工具执行结果注入，循环直到最终回答       │       │
+│   └─────────────────────────────────────────────┘       │
+│                                                         │
+│   ┌─────────────────────────────────────────────┐       │
+│   │         Fallback Chain (四级降级链)           │       │
+│   │   L1: LangChain Agent + Tools               │       │
+│   │   L2: LLM without Tools (纯 LLM 回答)       │       │
+│   │   L3: 规则层 TF-IDF 匹配知识库               │       │
+│   │   L4: 默认兜底回答                           │       │
+│   └─────────────────────────────────────────────┘       │
+└─────────────────────────────────────────────────────────┘
+                         │
+     ┌───────────┬───────┴────────┬───────────────┐
+     v           v                v               v
+┌──────────┐ ┌──────────┐ ┌──────────────┐ ┌──────────────┐
+│core/llm  │ │core/tools│ │core/rag_     │ │core/retrieval│
+│.py       │ │.py       │ │retriever.py  │ │.py          │
+│(MiMo API)│ │(LangChain│ │(Chroma RAG)  │ │(TF-IDF降级) │
+│          │ │ Tools)   │ │              │ │              │
+└──────────┘ └──────────┘ └──────────────┘ └──────────────┘
+```
+
+### 1.3 数据流（用户请求完整生命周期）
+
+```
+用户: "我昨天识别了几次手势？精度怎么样？"
+  │
   v
-预处理（分词/归一化）
-  |
+[1] LangChainAgent.answer(question, lang)
+  │
   v
-意图路由器
-  |- 高置信度命中规则层 -> 直接返回规则层答案
-  |- 低置信度或未命中 -> 调用 LLM 层
-  |     |- LLM 成功 -> 返回 LLM 答案
-  |     +- LLM 失败（超时/限流/异常）-> 返回规则层最佳匹配 + 降级提示
-  +- 两者均无结果 -> 返回默认兜底回答
+[2] 构建 System Prompt:
+    - 角色定义 + 工具 Schema 列表 + JSON 输出格式约束
+  │
+  v
+[3] Agent Loop 第 1 轮:
+    LLM → {"action": "tool_call", "tool": "query_history", "args": {"query": "昨天"}}
+    执行工具 → "昨天共识别 5 次..."
+  │
+  v
+[4] Agent Loop 第 2 轮:
+    LLM → {"action": "tool_call", "tool": "query_model_metrics", "args": {"query": "精度"}}
+    执行工具 → "mAP@0.5 = 99.5%..."
+  │
+  v
+[5] Agent Loop 第 3 轮:
+    LLM → {"action": "final_answer", "answer": "昨天您共识别了5次手势。模型精度 mAP@0.5 达到99.5%..."}
+  │
+  v
+返回给用户
 ```
 
 ---
 
-## 三、意图路由逻辑
+## 二、模块拆分与职责
 
-路由决策基于三层信号，按优先级依次判断：
+### 2.1 文件清单
 
-### 3.1 路由决策表
+| 文件 | 职责 | 变更类型 |
+|------|------|----------|
+| `app.py` | UI 薄壳，仅 Gradio 布局 + 调用 Agent 接口 | 适配 |
+| `core/agent.py` | LangChainAgent（ReAct Agent + 四级降级链） | **重写** |
+| `core/tools.py` | LangChain Tool 封装（history/model/code/search_kb） | **重写** |
+| `core/llm.py` | MiMo API 的 LangChain 兼容 LLM 封装 | **重写** |
+| `core/rag_retriever.py` | Chroma 向量 RAG 检索器 | **新建** |
+| `core/retrieval.py` | TF-IDF 检索器（保留作为 L3 降级） | 保留 |
+| `core/text_preprocessor.py` | 分词、去停用词、归一化 | 保留 |
+| `core/history.py` | SQLite 历史记录管理 | 保留不变 |
+| `core/detector.py` | YOLOv8 手势检测 | 保留不变 |
+| `core/i18n.py` | 国际化翻译 | 保留不变 |
 
-| 优先级 | 条件 | 路由目标 | 理由 |
-|--------|------|----------|------|
-| 1 | 精确匹配（去除标点后完全一致） | 规则层直接返回 | 确定性 100%，无需 LLM |
-| 2 | 规则层相似度 >= 0.3（高阈值） | 规则层直接返回 | 高置信度命中，LLM 是浪费 |
-| 3 | 规则层相似度 0.2 ~ 0.3（模糊区间） | LLM 优先，失败回退规则层 | 不确定区域，优先尝试 LLM |
-| 4 | 规则层相似度 < 0.2 或关键词全未命中 | LLM 层 | 规则层无法处理，交给 LLM |
-| 5 | LLM 层调用失败 | 回退规则层最佳匹配 | 降级兜底 |
+### 2.2 调用关系
 
-### 3.2 路由阈值配置（config.py 新增）
+```
+app.py
+  └─ core/agent.py (LangChainAgent)
+       ├─ core/llm.py (LLM)               ← API 通信
+       ├─ core/tools.py (ToolRegistry)     ← 工具定义 + 执行
+       │    └─ core/retrieval.py           ← 知识库检索
+       │         └─ core/text_preprocessor.py
+       └─ core/retrieval.py (GestureAgent) ← 规则层降级
+```
+
+### 2.3 app.py 变更范围
+
+**移出 app.py 的内容：**
+- `_FallbackAgent` 类 → 移入 `core/agent.py`
+- Agent 初始化逻辑 → `LangChainAgent` 统一管理
+- 快捷问题按钮逻辑 → 通过 `agent.get_quick_questions()` 调用
+- 对话历史管理 → `agent.clear_history()` 统一接口
+
+**app.py 保留：**
+- Gradio UI 布局定义（5 个 Tab）
+- 各 Tab 的事件绑定（图片/视频/摄像头/Agent/历史）
+- 语言切换事件 → 调用 `agent.reload(lang)`
+
+**对外接口不变：**
+```python
+agent.answer(question: str, lang: str = None) -> str
+agent.get_quick_questions() -> list[str]
+agent.reload(lang: str) -> None
+agent.clear_history() -> None
+```
+
+---
+
+## 三、Agent 设计（LangChain ReAct Agent）
+
+### 3.1 Agent 架构
+
+使用 LangChain 的 `create_react_agent` 构建 ReAct Agent。Agent 自主决策调用工具，LangChain 框架内置处理循环、工具调用、结果注入。
+
+### 3.2 工具定义
+
+工具使用 LangChain 的 `Tool` 类封装：
 
 ```python
-# Agent 路由配置
-AGENT_SIMILARITY_THRESHOLD = 0.2   # 知识库匹配最低阈值
-AGENT_RULE_HIGH_THRESHOLD = 0.3    # 规则层高置信度阈值
-AGENT_RULE_LOW_THRESHOLD = 0.2     # 规则层低置信度阈值
-AGENT_LLM_ENABLED = True           # 是否启用 LLM 层
-AGENT_LLM_TIMEOUT = 30             # LLM 调用超时（秒）
-AGENT_LLM_MAX_RETRIES = 2          # LLM 最大重试次数
-AGENT_LLM_MAX_HISTORY = 5          # 最多保留对话轮数
+from langchain.tools import Tool
+
+Tool(
+    name="query_history",
+    func=query_history_fn,
+    description="查询手势检测历史记录，支持时间范围查询"
+)
 ```
 
-### 3.3 路由器伪代码
+### 3.3 终止条件
+
+由 LangChain AgentExecutor 内置的 `max_iterations` 参数控制：
+- `max_iterations=3`：最大推理轮次（从 5 降至 3，避免简单问题超时）
+- `request_timeout=15s`：单次 LLM 调用超时（从 30s 降至 15s）
+- `handle_parsing_errors=True`：自动处理解析错误并重试
+- 超限时 AgentExecutor 自动返回已有结果
+
+### 3.4 快速路径
+
+在 Agent 入口处增加关键词预判，对无需工具的简单问题直接走 L2（纯 LLM 回答），跳过 LangChain Agent 的工具调用循环：
+
+- **命中条件**: 匹配系统介绍模式（"系统是什么"、"what is this system"等）、打招呼、闲聊
+- **排除条件**: 问题含工具相关关键词（"历史"、"识别"、"指标"、"mAP"等）时不走快速路径
+- **效果**: 简单问题从 50-60s 降至 5-10s
+
+### 3.5 工具调用策略
+
+LangChain Agent 原生支持 tool_calls。MiMo API 若支持 function calling 则使用原生格式，否则使用 ReAct prompt 模式（Thought/Action/Observation）。
+
+---
+
+## 四、四级降级链
+
+```
+Level 1: LangChain ReAct Agent + Tools
+   ↓ 失败（AgentExecutor 异常 / 循环超限 / LLM 报错）
+Level 2: LLM without Tools (单次纯 LLM 调用)
+   ↓ 失败（API 不可用 / 熔断中）
+Level 3: 规则层 TF-IDF 匹配知识库
+   ↓ 无匹配（score < 0.2）
+Level 4: 默认兜底回答
+```
+
+### 各级触发条件
+
+| 级别 | 触发条件 | 实现方式 |
+|------|----------|----------|
+| L1 | 默认路径 | LangChain AgentExecutor.invoke() |
+| L2 | L1 异常或循环超限 | `llm.ask(question, lang=lang)` |
+| L3 | L2 失败（API 不可用 / 熔断） | `retriever.match(question)` |
+| L4 | L3 score < 0.2 | 返回默认兜底文本 |
+
+### 降级提示
+
+- L2 成功 → 无提示
+- L3 成功 → 追加 `[注：当前智能服务暂不可用，以上回答来自本地知识库]`
+- L4 → 追加 `[注：智能服务暂不可用，无法匹配相关知识]`
+
+降级提示仅在首次降级时追加，避免重复提示。
+
+---
+
+## 五、RAG 检索设计（Chroma 向量检索）
+
+### 5.1 架构
+
+使用 `core/rag_retriever.py` 实现基于 ChromaDB 的向量检索：
+- **嵌入模型**: sentence-transformers (all-MiniLM-L6-v2)
+- **向量数据库**: ChromaDB（持久化存储）
+- **索引源**: Essay.docx、.md 文档、代码函数、knowledge_base.json
+
+### 5.2 索引构建
 
 ```python
-def route(question):
-    rule_score, rule_answer = rule_layer.match(question)
+from sentence_transformers import SentenceTransformer
+import chromadb
 
-    # 精确匹配或高置信度 -> 直接走规则层
-    if rule_score >= RULE_HIGH_THRESHOLD:
-        return rule_answer
+model = SentenceTransformer('all-MiniLM-L6-v2')
+client = chromadb.PersistentClient(path="./data/chroma_db")
+collection = client.get_or_create_collection("knowledge")
 
-    # 低置信度 -> 走 LLM
-    if rule_score < RULE_LOW_THRESHOLD:
-        return llm_layer.ask(question)
-
-    # 模糊区间 -> 双路并行，取高分
-    llm_answer = llm_layer.ask(question)
-    if llm_answer.confidence > rule_score:
-        return llm_answer
-    return rule_answer
+# 分块策略：按段落分块，每块 500 字符，重叠 50 字符
+# 来源：Essay.docx、README.md、CLAUDE.md、AgentMaker.md、knowledge_base.json
 ```
+
+### 5.3 降级保留
+
+`core/retrieval.py` 中的 TFIDFRetriever 保留作为 L3 降级路径。
 
 ---
 
-## 四、规则层优化方案
+## 六、LLM 通信层
 
-### 4.1 优化对比
+### 6.1 MiMo API 调用
 
-| 维度 | 当前方案 | 优化后方案 |
-|------|----------|------------|
-| 匹配方式 | 关键词子串匹配 | TF-IDF 文本相似度 + 关键词匹配加权融合 |
-| 同义词 | 无 | 构建同义词表，扩展匹配 |
-| 预处理 | 仅 `lower()` | 分词 + 去停用词 + 归一化 |
-| 相似度算法 | `count / sqrt(len)` | 余弦相似度（TF-IDF 向量） |
-| 知识库结构 | keywords + question | keywords + question + synonyms + expanded_keywords |
+- 格式：OpenAI 兼容 Chat Completion（`POST {base_url}/chat/completions`）
+- 通过 LangChain `ChatOpenAI` 兼容接口调用（base_url 指向 MiMo API）
+- temperature=0, max_tokens=512
 
-### 4.2 TF-IDF 相似度方案
+### 6.2 容错机制
 
-**原理**：将知识库所有问题和用户输入转换为 TF-IDF 向量，计算余弦相似度。
-
-**优势**：
-- 零依赖外部 API，纯本地计算
-- 对词序不敏感，"怎么提高准确率" 和 "准确率怎么提高" 能匹配
-- 自动降低常见词（"的"、"是"）的权重
-
-**依赖**：`scikit-learn`（`TfidfVectorizer` + `cosine_similarity`）
-
-### 4.3 同义词扩展
-
-在 `knowledge_base.json` 中为每个 QA 条目增加 `synonyms` 字段：
-
-```json
-{
-  "category": "使用技巧",
-  "keywords": ["准确", "提高", "技巧"],
-  "synonyms": ["精度", "准确率", "效果", "优化", "更好", "改善"],
-  "question": "如何提高识别准确率？",
-  "answer": "..."
-}
-```
-
-匹配时将 keywords + synonyms 合并为 expanded_keywords 进行计算。
-
-### 4.4 预处理流水线
-
-```
-原始问题 -> 去标点 -> 分词(jieba) -> 去停用词 -> 归一化 -> 清洗后文本
-```
-
-新增依赖：`jieba`（中文分词）
-
-### 4.5 匹配算法（融合评分）
-
-```python
-final_score = alpha * tfidf_score + beta * keyword_score + gamma * exact_match_bonus
-# alpha=0.6, beta=0.3, gamma=0.1 （可调参数）
-```
-
-- `tfidf_score`：TF-IDF 余弦相似度（0~1）
-- `keyword_score`：当前关键词匹配分数（0~1，归一化后）
-- `exact_match_bonus`：精确匹配加分（0 或 1）
-
----
-
-## 五、LLM 层设计
-
-### 5.1 MiMo API 调用方式
-
-使用 OpenAI 兼容的 Chat Completion 格式（`requests` 直接调用）：
-
-```
-POST {MIMO_BASE_URL}/chat/completions
-Headers:
-  Authorization: Bearer {MIMO_API_KEY}
-  Content-Type: application/json
-
-Body:
-{
-  "model": "mimo-2.5-pro",
-  "messages": [
-    {"role": "system", "content": "{system_prompt}"},
-    {"role": "user", "content": "{user_question}"}
-  ],
-  "temperature": 0.3,
-  "max_tokens": 512,
-  "stream": false
-}
-```
-
-**选择 `requests` 而非 `openai` SDK**：减少一个外部依赖，调用逻辑简单。
-
-### 5.2 System Prompt 设计
-
-```
-你是一个专业的手势识别系统问答助手。你的职责是：
-1. 回答用户关于本手势识别系统的问题（功能、使用方法、技术原理）
-2. 回答与手势识别、YOLO目标检测、CNN卷积神经网络相关的技术问题
-3. 保持回答简洁、准确、有条理
-
-约束：
-- 不要编造系统不具备的功能
-- 不要回答与系统无关的开放性问题（如写代码、翻译、闲聊）
-- 如果问题超出你的知识范围，请坦诚说明并建议用户查看官方文档
-- 回答使用中文，适当使用 Markdown 格式
-```
-
-### 5.3 上下文管理
-
-**方案**：保留最近 N 轮对话历史（默认 5 轮），作为 messages 数组传入。
-
-```
-messages = [system_prompt] + 最近N轮对话历史 + [当前问题]
-```
-
-**对话历史存储**：内存中维护一个 `collections.deque(maxlen=N*2)`（每轮 = user + assistant 各一条）。
-
-**何时清空**：
-- 用户主动点击"清空对话"
-- 会话超时（30 分钟无交互）
-
-### 5.4 超时与重试策略
-
-| 参数 | 值 | 说明 |
-|------|-----|------|
-| 单次超时 | 10 秒 | 超时后触发重试 |
-| 最大重试 | 2 次 | 指数退避（1s -> 2s） |
-| 总超时 | 25 秒 | 超过后触发降级 |
-| 限流（429） | 等待 Retry-After 头指定时间，最长 5 秒 | |
-| 服务端错误（5xx） | 立即重试一次 | |
-
-### 5.5 错误处理
-
-```python
-try:
-    response = call_mimo_api(messages)
-    return post_process(response)
-except TimeoutError:
-    return fallback_to_rule_layer()
-except RateLimitError:
-    wait_and_retry()
-except APIError as e:
-    log_error(e)  # 不记录 API Key
-    return fallback_to_rule_layer()
-```
-
----
-
-## 六、降级与容灾
-
-### 6.1 降级策略
-
-```
-LLM 层调用
-  |
-  |- 成功 -> 返回 LLM 回答
-  |
-  |- 超时 / 网络错误
-  |     -> 重试（最多 2 次）
-  |     -> 仍失败 -> 回退规则层最佳匹配
-  |     -> 规则层也无匹配 -> 返回默认回答 + 降级提示
-  |
-  |- API Key 无效 / 配额耗尽（401/429）
-  |     -> 禁用 LLM 层（本 session 内）
-  |     -> 后续请求全部走规则层
-  |     -> 日志记录警告
-  |
-  +- 服务端错误（5xx）
-        -> 重试一次
-        -> 仍失败 -> 回退规则层
-```
-
-### 6.2 降级提示
-
-LLM 不可用时，在回答末尾附加提示（不暴露技术细节）：
-
-> [注：当前智能问答服务暂不可用，以上回答来自本地知识库，可能不够完整。]
-
-### 6.3 熔断机制
-
-连续 3 次 LLM 调用失败 -> 触发熔断，后续 60 秒内直接走规则层，不再尝试 LLM。60 秒后恢复尝试。
-
----
-
-## 七、RAG 工具检索模块
-
-### 7.1 设计目标
-
-为 Agent 增强检索增强生成（RAG）能力，使 LLM 层能够主动查询系统内部信息，而非仅依赖知识库静态回答。
-
-### 7.2 工具列表
-
-| 工具函数 | 功能 | 触发关键词 |
-|----------|------|-----------|
-| `query_history()` | 查询 SQLite 检测历史记录，支持多语言时间关键词（今天/昨天/本周/最近N天） | "历史"、"记录"、"history"、"record" |
-| `query_model_metrics()` | 读取训练 results.csv 和 args.yaml，报告 mAP50、mAP50-95、precision、recall、loss | "模型"、"指标"、"mAP"、"metrics" |
-| `query_code()` | 搜索项目源码中的函数/类定义 | "代码"、"函数"、"code"、"function" |
-| `search_knowledge_base()` | 基于关键词 + jieba 分词匹配知识库 | "知识库"、"knowledge" |
-
-### 7.3 工具注册机制
-
-`build_tool_registry()` 函数创建关键词索引的工具列表，Agent 根据用户问题中的关键词自动选择合适工具，将检索结果注入 LLM 上下文。
-
-### 7.4 上下文注入
-
-RAG 检索结果作为系统消息注入 LLM 对话，最大上下文长度由 `AGENT_RAG_MAX_CONTEXT_LEN`（默认 1500 字符）控制。
-
----
-
-## 八、国际化（i18n）模块
-
-### 8.1 设计目标
-
-支持 UI 界面和 Agent 知识库的多语言切换，当前支持 4 种语言：简体中文（zh-CN）、繁體中文（zh-TW）、English（en）、Français（fr）。
-
-### 8.2 架构
-
-```
-locales/                 # UI 翻译文件（JSON 格式）
-├── zh-CN.json
-├── zh-TW.json
-├── en.json
-└── fr.json
-
-data/                    # 每语言独立知识库
-├── knowledge_base.json         # 中文
-├── knowledge_base_zh-TW.json   # 繁体中文
-├── knowledge_base_en.json      # 英文
-└── knowledge_base_fr.json      # 法文
-```
-
-### 8.3 核心接口
-
-- `i18n.set_language(lang)` — 切换当前语言
-- `i18n.t(key, **kwargs)` — 获取翻译文本，支持参数化插值，带回退链（当前语言 → zh-CN → 原始 key）
-- Agent 切换语言时自动重载对应语言的知识库
-
----
-
-## 九、API Key 安全管理方案
-
-### 7.1 文件结构
-
-```
-项目根目录/
-+-- .env              # 实际密钥（.gitignore 排除，不提交）
-+-- .env.example      # 模板文件（提交到 Git，无真实密钥）
-+-- .gitignore        # 包含 .env 排除规则
-+-- config.py         # 通过 dotenv 读取环境变量
-```
-
-### 7.2 .env.example（提交到 Git）
-
-```
-# MiMo API 配置
-MIMO_API_KEY=your_api_key_here
-MIMO_BASE_URL=https://api.mimo.com/v1
-MIMO_MODEL_NAME=mimo-2.5-pro
-```
-
-### 7.3 .env（不提交，本地使用）
-
-```
-# MiMo API 配置
-MIMO_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxx
-MIMO_BASE_URL=https://api.mimo.com/v1
-MIMO_MODEL_NAME=mimo-2.5-pro
-```
-
-### 7.4 .gitignore 新增规则
-
-```
-# 环境变量（密钥）
-.env
-.env.local
-.env.*.local
-```
-
-### 7.5 安全红线
-
-| 规则 | 措施 |
+| 机制 | 参数 |
 |------|------|
-| 代码中不硬编码 Key | 通过 `os.getenv()` 读取，无默认真实值 |
-| 日志中不打印 Key | 所有日志/异常信息中过滤 Key 内容 |
-| 前端不暴露 Key | API 调用在后端完成，前端只接收回答 |
-| Git 不提交 .env | `.gitignore` 排除 + CI 检查 |
-| 异常信息脱敏 | `except` 捕获时，`str(e)` 中替换 Key 为 `***` |
+| 超时 | 单次 15s |
+| 重试 | 最多 2 次，指数退避 |
+| 熔断 | 连续 3 次失败 → 60 秒冷却 |
+| 错误脱敏 | 日志中过滤 API Key |
+| 对话历史 | deque(maxlen=10)，5 轮 |
+
+### 6.3 Tool Calling 兼容
+
+如果 MiMo API 支持原生 `tool_calls`，则使用 LangChain 的 `ChatOpenAI` 原生 tool_calls 模式。
+否则使用 ReAct prompt 模式（Thought/Action/Observation），由 LangChain 框架自动处理。
 
 ---
 
-## 十、文件与目录变更规划
+## 七、测试策略
 
-### 10.1 新增文件
+### 7.1 测试分层
 
-| 文件路径 | 用途 |
-|----------|------|
-| `.env` | 存储 API 密钥（本地，不提交） |
-| `.env.example` | 密钥模板（提交到 Git） |
-| `core/llm_layer.py` | LLM 层封装（MiMo API 调用、重试、上下文管理） |
-| `core/intent_router.py` | 意图路由器（决定走规则层还是 LLM 层） |
-| `core/text_preprocessor.py` | 文本预处理（分词、去停用词、归一化） |
-| `data/stopwords.txt` | 中文停用词表 |
-| `data/custom_dict.txt` | jieba 自定义词典 |
-| `core/i18n.py` | 国际化模块（多语言 UI 翻译） |
-| `core/tools.py` | RAG 检索工具（历史/模型指标/源码/知识库查询） |
-| `data/knowledge_base_en.json` | 英文问答知识库 |
-| `data/knowledge_base_fr.json` | 法文问答知识库 |
-| `data/knowledge_base_zh-TW.json` | 繁体中文问答知识库 |
-| `locales/zh-CN.json` | 简体中文 UI 翻译 |
-| `locales/zh-TW.json` | 繁体中文 UI 翻译 |
-| `locales/en.json` | 英文 UI 翻译 |
-| `locales/fr.json` | 法文 UI 翻译 |
+```
+tests/
+├── test_agent_loop.py      # LangChainAgent 单元测试（Mock LLM）
+├── test_tools.py           # 工具函数测试
+├── test_retrieval.py       # 检索器测试
+├── test_llm.py             # LLM 层测试（Mock HTTP）
+└── conftest.py             # 共享 fixtures
+```
 
-### 10.2 修改文件
+### 7.2 Agent Loop 测试场景
 
-| 文件路径 | 变更内容 |
-|----------|----------|
-| `config.py` | 新增 LLM 相关配置项 + dotenv 加载逻辑 |
-| `core/agent.py` | 重构为双层架构入口，集成 Router |
-| `app.py` | Agent 初始化适配新架构，传递对话历史 |
-| `requirements.txt` | 新增 `python-dotenv`、`jieba`、`scikit-learn` |
-| `.gitignore` | 新增 `.env` 排除规则 |
-| `data/knowledge_base.json` | 每个 QA 条目增加 `synonyms` 字段 |
+| 场景 | Mock 行为 | 验证 |
+|------|-----------|------|
+| 单工具调用成功 | 第1轮 tool_call, 第2轮 final_answer | 返回含工具结果的回答 |
+| 多工具串行 | 2 次 tool_call + 1 次 final_answer | 返回综合回答 |
+| LLM 直接回答 | 第1轮即 final_answer | 不调用工具 |
+| 解析失败重试 | 第1轮非法 JSON, 第2轮合法 | 重试后成功返回 |
+| 最大轮次终止 | 连续 5+ 轮 tool_call | 不 hang，有返回 |
+| 相同工具循环 | 连续 2 轮相同 tool+args | 检测循环，强制终止 |
+| LLM 完全不可用 | API 总是报错 | 降级到规则层 |
+| 规则层无匹配 | LLM 不可用 + 无关问题 | 返回默认兜底 |
 
----
+### 7.3 工具测试
 
-## 十一、实施步骤建议
+独立测试每个工具函数：正常输入、空输入、异常输入。
 
-### Phase 1：安全基础设施 + 配置准备（优先级最高）
+### 7.4 集成测试（可选）
 
-1. 创建 `.env.example` 和 `.gitignore`
-2. 修改 `config.py`，增加 dotenv 加载逻辑
-3. 安装新依赖：`pip install python-dotenv jieba scikit-learn`
-4. 更新 `requirements.txt`
-5. 验证：启动项目确认配置加载正常，无 Key 时给出 WARNING
-
-### Phase 2：规则层优化
-
-1. 新建 `core/text_preprocessor.py`（分词 + 去停用词 + 归一化）
-2. 新建 `data/stopwords.txt`
-3. 新建 `data/custom_dict.txt`
-4. 修改 `core/agent.py`，替换相似度算法为 TF-IDF + 关键词融合
-5. 更新 `data/knowledge_base.json`，为每个条目增加 `synonyms` 字段
-6. 测试：用 20 个不同表述的问题验证匹配率提升
-
-### Phase 3：LLM 层集成
-
-1. 新建 `core/llm_layer.py`（封装 MiMo API 调用）
-2. 实现上下文管理（deque 维护对话历史）
-3. 实现超时重试 + 错误脱敏
-4. 测试：单独调用 LLM API 验证连通性
-
-### Phase 4：意图路由 + 降级机制
-
-1. 新建 `core/intent_router.py`（路由决策逻辑）
-2. 修改 `core/agent.py`，接入 Router
-3. 实现降级兜底 + 熔断机制
-4. 更新 `app.py`，适配新 Agent 接口（传递对话历史）
-5. 端到端测试：覆盖所有路由分支
-
-### Phase 5：收尾
-
-1. `flake8` 检查，确保零 error 零 warning
-2. 补充测试用例
-3. 更新 `README.md`（说明 `.env` 配置方式）
-4. 验证 `.gitignore` 确实排除了 `.env`
+需要真实 API Key，标记 `@pytest.mark.skipif`。
 
 ---
 
-## 十二、新增依赖清单
+## 八、配置变更
 
-| 包名 | 版本 | 用途 |
-|------|------|------|
-| `python-dotenv` | >= 1.0 | 加载 `.env` 文件 |
-| `jieba` | >= 0.42 | 中文分词 |
-| `scikit-learn` | >= 1.3 | TF-IDF 向量化 + 余弦相似度 |
+### config.py 新增项
+
+```python
+# Agent Loop 配置
+AGENT_MAX_TURNS = 3          # 从 5 降至 3，避免简单问题超时
+AGENT_MAX_TOOL_CALLS = 6
+AGENT_MAX_SAME_CALLS = 2
+AGENT_MAX_PARSE_FAILS = 2
+
+# LLM 超时配置
+AGENT_LLM_TIMEOUT = 15       # 从 30s 降至 15s，单次 LLM 调用超时
+
+# 检索器后端
+RETRIEVER_BACKEND = "tfidf"  # "tfidf" | "vector"
+
+# RAG 配置
+CHROMA_PERSIST_DIR = os.path.join(DATA_DIR, "chroma_db")
+EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+RAG_CHUNK_SIZE = 500
+RAG_CHUNK_OVERLAP = 50
+```
+
+### 保留项
+
+所有现有配置保留不变（MODEL_PATH, DB_PATH, MIMO_*, AGENT_LLM_*, AGENT_RAG_* 等）。
 
 ---
 
-## 十三、风险与注意事项
+## 九、依赖清单
 
-| 风险 | 应对 |
+**新增依赖：**
+
+| 包 | 用途 |
+|----|------|
+| `langchain` | Agent 框架（ReAct Agent, AgentExecutor） |
+| `langchain-classic` | LangChain 经典模块（create_react_agent, AgentExecutor） |
+| `langchain-community` | LangChain 社区集成 |
+| `langchain-openai` | LangChain OpenAI 兼容接口（ChatOpenAI） |
+| `chromadb` | 向量数据库（存储文档嵌入） |
+| `sentence-transformers` | 文本嵌入模型（all-MiniLM-L6-v2） |
+
+**保留依赖：**
+
+| 包 | 用途 |
+|----|------|
+| `requests` | MiMo API 调用 |
+| `scikit-learn` | TF-IDF 向量化（L3 降级） |
+| `jieba` | 中文分词 |
+| `python-dotenv` | .env 加载 |
+| `ultralytics` | YOLOv8 检测 |
+| `gradio` | UI |
+
+---
+
+## 十、风险与缓解
+
+| 风险 | 缓解 |
 |------|------|
-| MiMo API 不支持 OpenAI 格式 | 预留 `core/llm_layer.py` 中的接口抽象，切换只需改调用方式 |
-| TF-IDF 在小数据集上效果有限 | 知识库仅 10 条，TF-IDF 够用；后续可升级为 sentence-transformers |
-| jieba 分词不准 | 维护一份手势识别领域的自定义词典（`data/custom_dict.txt`） |
-| API Key 泄露 | 多层防御：.gitignore + dotenv + 日志脱敏 + 前端隔离 |
+| MiMo 不稳定输出 JSON | 三层解析 + 重试 + 降级 |
+| Agent Loop 死循环 | max_iterations=3 + request_timeout=15s 双重保障 |
+| LLM 调用延迟高 | 快速路径跳过 Agent + MAX_TURNS=3 + 15s 超时 |
+| 简单问题被误判需工具 | 快速路径关键词预判，打招呼/系统介绍直接走 L2 |
+| 降级到规则层质量低 | 10 条知识库可覆盖核心问题，未来升级向量检索 |
+| 重构引入 Bug | 对外接口不变，逐模块替换，保留 fallback |
 
 ---
 
-## 实现记录
+## 十一、实施步骤
 
-### Phase 1 实现记录 - 安全基础设施 + 配置准备
-- 状态：已完成
-- 新增文件：`.env.example`、`.gitignore`
-- 修改文件：`config.py`（增加 dotenv 加载 + LLM/路由配置项）、`requirements.txt`（新增 python-dotenv/jieba/scikit-learn/requests）
-- 验证结果：config.py 加载正常，无 Key 时输出 WARNING 英文提示（避免 Windows 编码问题）
+### Phase 1: 文档更新
+- [x] 更新 CLAUDE.md（技术栈、依赖批准、目录结构）
+- [x] 更新 AgentMaker.md（架构方案、依赖清单）
 
-### Phase 2 实现记录 - 规则层优化
-- 状态：已完成
-- 新增文件：`core/text_preprocessor.py`（jieba 分词 + 去停用词 + 归一化）、`data/stopwords.txt`、`data/custom_dict.txt`
-- 修改文件：`core/agent.py`（TF-IDF + 关键词融合评分）、`data/knowledge_base.json`（每个 QA 增加 synonyms 字段）
-- 融合权重：alpha=0.6(TF-IDF) + beta=0.3(关键词) + gamma=0.1(精确匹配)
-- 测试结果：精确匹配 1.00，同义表达 0.40~0.81，无关问题 0.00
-- 阈值调整：AGENT_SIMILARITY_THRESHOLD 从 0.3 降到 0.2，AGENT_RULE_LOW_THRESHOLD 设为 0.2
+### Phase 2: 安装依赖
+- [x] pip install langchain langchain-community chromadb sentence-transformers
+- [x] 更新 requirements.txt
 
-### Phase 3 实现记录 - LLM 层集成
-- 状态：已完成
-- 新增文件：`core/llm_layer.py`（MiMo API 封装）、`test_mimo_api.py`（API 连通性测试脚本）
-- 功能：Chat Completion 调用、对话历史管理（deque）、指数退避重试、熔断机制（3次失败→60秒熔断）、错误信息脱敏
-- System Prompt：英文撰写，约束只回答手势识别/YOLO/CNN 相关问题
-- 无 Key 时 ask() 优雅返回 None，不报错
+### Phase 3: 新建 core/rag_retriever.py
+- [x] 实现 Chroma 向量检索器
+- [x] 索引 Essay.docx、.md 文档、knowledge_base.json
+- [x] sentence-transformers 嵌入
 
-### Phase 4 实现记录 - 意图路由 + 降级机制
-- 状态：已完成
-- 新增文件：`core/intent_router.py`（路由决策逻辑）
-- 修改文件：`core/agent.py`（新增 HybridAgent 类）、`app.py`（改用 HybridAgent）
-- 路由逻辑：精确匹配→规则层直接返回 | 高置信度(>=0.3)→规则层 | 低置信度(<0.2)→LLM | 模糊区间(0.2~0.3)→LLM优先，失败回退规则层
-- 降级：LLM 失败→规则层最佳匹配+降级提示 | 熔断：连续3次失败→60秒内跳过LLM
-- app.py 新增 _FallbackAgent 内部类处理初始化失败场景
+### Phase 4: 重写 core/llm.py
+- [x] 封装 LangChain 兼容的 LLM 类（ChatOpenAI 兼容 MiMo API）
 
-### Phase 5 实现记录 - 收尾验证
-- 状态：已完成
-- flake8：全量通过（新增 `.flake8` 配置忽略 app.py 的 E402）
-- 端到端测试：9 项测试全部通过（模块导入、配置加载、预处理、规则层匹配、LLM 无 Key 降级、路由器精确匹配/降级、HybridAgent 集成、快捷问题、清空历史）
-- 更新文件：`README.md`（新增 .env 配置说明、更新项目结构和开发进度）
-- .gitignore 验证：`.env` 被正确排除
+### Phase 5: 重写 core/tools.py
+- [x] 将工具封装为 LangChain Tool 对象
+- [x] search_knowledge_base 切换为向量检索
 
-### Phase 6 实现记录 - RAG 工具检索
-- 状态：已完成
-- 新增文件：`core/tools.py`（4 个 RAG 工具函数 + 工具注册机制）
-- 工具列表：`query_history()`（多语言时间关键词解析）、`query_model_metrics()`（读取训练指标）、`query_code()`（源码搜索）、`search_knowledge_base()`（知识库关键词匹配）
-- 集成方式：HybridAgent 根据用户问题关键词自动选择工具，检索结果注入 LLM 上下文
-- 配置：`AGENT_RAG_ENABLED = True`，`AGENT_RAG_MAX_CONTEXT_LEN = 1500`
+### Phase 6: 重写 core/agent.py
+- [x] 使用 LangChain create_react_agent
+- [x] 集成四级降级链
 
-### Phase 7 实现记录 - 国际化（i18n）
-- 状态：已完成
-- 新增文件：`core/i18n.py`、`locales/zh-CN.json`、`locales/zh-TW.json`、`locales/en.json`、`locales/fr.json`
-- 新增知识库：`data/knowledge_base_en.json`、`data/knowledge_base_fr.json`、`data/knowledge_base_zh-TW.json`
-- 修改文件：`app.py`（UI 文本全部走 i18n 翻译，新增语言切换下拉框）、`config.py`（新增多语言知识库路径映射）、`core/agent.py`（HybridAgent 支持语言切换重载知识库）、`core/text_preprocessor.py`（支持英法文分词）
-- 翻译机制：`t(key, **kwargs)` 函数，回退链：当前语言 → zh-CN → 原始 key
-- 支持语言：简体中文、繁體中文、English、Français
+### Phase 7: 适配 app.py
+- [x] Agent Tab 调用新 Agent 的 invoke() 方法
+- [x] 确保 5 个 Tab 功能不变
+
+### Phase 8: 验证
+- [x] flake8 全量通过
+- [x] app.py 启动正常
+- [x] Agent 功能验证

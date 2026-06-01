@@ -72,10 +72,19 @@
   "agent.default_response": "抱歉，我无法理解您的问题。",
   "agent.try_these": "试试这些问题：",
   "agent.input_related": "请输入相关问题，我会尽力回答！",
+  "agent.degradation_hint": "\n\n> [注：当前智能问答服务暂不可用，以上回答来自本地知识库，可能不够完整。]",
+  "agent.init_failed": "智能问答服务初始化失败，请检查配置。",
+  "agent.parse_retry_hint": "您的上一条回复格式不正确。请严格按照指定的 JSON 格式输出。",
+  "agent.loop_detected_hint": "您已经查询过相同的信息了。请基于已有结果直接生成最终回答。",
+  "agent.tool_not_found": "工具 \"{name}\" 不存在。",
+  "agent.tool_error": "工具 {name} 执行出错: {error}",
+  "agent.summary_prompt": "请基于以下已收集的信息，生成一个完整、简洁的回答。",
+  "agent.system_prompt": "你是一个专业的手势识别系统智能助手。你可以调用工具来查询系统数据，然后基于结果回答用户问题。",
+  "agent.available_tools": "## 可用工具",
+  "agent.output_format": "## 输出格式\n你必须输出 JSON 对象，二选一：\n1. 调用工具: {\"action\": \"tool_call\", \"tool\": \"工具名\", \"args\": {\"参数名\": \"值\"}}\n2. 最终回答: {\"action\": \"final_answer\", \"answer\": \"回答内容\"}",
+  "agent.rules": "## 规则\n- 每次只调用一个工具\n- 等待工具结果后再决定下一步\n- 如果已有足够信息，直接输出 final_answer\n- 不要编造系统没有的功能或数据",
+  "agent.lang_instruction": "## 语言\n你必须使用{lang}回答。",
 
-  "intent.enter_question": "请输入您的问题。",
-  "intent.fallback_hint": "\n\n> [注：当前智能问答服务暂不可用，以上回答来自本地知识库，可能不够完整。]",
-  "intent.unified_fallback": "这个问题超出了我的本地知识库范围，以下是我能帮助您的方面：\n\n1. **系统功能**：本系统是基于YOLOv8n的实时手势识别系统，支持图片/视频/摄像头三种识别模式\n2. **支持的手势**：A、D、I、L、V、W、Y、数字5、数字7、I love you\n3. **技术原理**：YOLO目标检测、CNN卷积神经网络等相关知识\n4. **使用帮助**：识别技巧、摄像头问题、性能优化等\n\n请尝试从以上方面提问，我会尽力为您解答！",
 
   "llm.system_prompt": "你是一个专业的手势识别系统问答助手。你的职责：\n1. 回答关于本手势识别系统的问题（功能、使用、技术原理）\n2. 回答与手势识别、YOLO目标检测、CNN相关的技术问题\n3. 保持回答简洁、准确、有条理\n\n限制：\n- 不要编造系统没有的功能\n- 不回答无关的开放性问题（编程、翻译、闲聊）\n- 如果超出知识范围，请如实说明\n\n适当使用Markdown格式。",
   "llm.rag_system_prompt": "你是一个手势识别系统的智能问答助手。以下是从项目数据库和代码中检索到的真实数据，请基于这些数据回答用户问题。\n\n重要规则：\n1. 优先使用检索到的数据回答，引用具体数字和事实\n2. 如果检索数据为空或不足以回答具体数据问题，请基于你对手势识别、YOLO、CNN等领域的通用知识来回答\n3. 不要编造本系统的具体指标（如mAP、FPS等），但可以回答通用技术原理\n4. 保持回答简洁、结构化\n5. 绝对不要回复\"未找到相关数据\"或类似的拒绝性语句，始终尽力提供有帮助的回答\n\n适当使用Markdown格式。",
@@ -113,9 +122,6 @@
   "tools.unknown_time": "未知时间",
   "tools.gesture_count_short": "手势数: {count}",
   "tools.detection_detail_label": "检测详情",
-  "tools.confidence_short": "置信度: {value}",
+  "tools.confidence_short": "置信度: {value}"
 
-  "keywords.history": "识别,检测,历史,记录,几次,昨天,今天,最近,本周,多少次,统计,查询",
-  "keywords.model": "模型,mAP,精度,训练,loss,参数,batch,epoch,输入尺寸,模型信息,指标",
-  "keywords.code": "代码,函数,怎么写,实现,源码,类,方法,detect,agent,detector"
 }

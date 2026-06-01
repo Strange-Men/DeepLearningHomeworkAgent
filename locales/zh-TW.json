@@ -72,10 +72,19 @@
   "agent.default_response": "抱歉，我無法理解您的問題。",
   "agent.try_these": "試試這些問題：",
   "agent.input_related": "請輸入相關問題，我會盡力回答！",
+  "agent.degradation_hint": "\n\n> [註：當前智慧問答服務暫不可用，以上回答來自本地知識庫，可能不夠完整。]",
+  "agent.init_failed": "智慧問答服務初始化失敗，請檢查設定。",
+  "agent.parse_retry_hint": "您的上一條回覆格式不正確。請嚴格按照指定的 JSON 格式輸出。",
+  "agent.loop_detected_hint": "您已經查詢過相同的資訊了。請基於已有結果直接生成最終回答。",
+  "agent.tool_not_found": "工具 \"{name}\" 不存在。",
+  "agent.tool_error": "工具 {name} 執行出錯: {error}",
+  "agent.summary_prompt": "請基於以下已收集的資訊，生成一個完整、簡潔的回答。",
+  "agent.system_prompt": "你是一個專業的手勢辨識系統智慧助手。你可以呼叫工具來查詢系統資料，然後基於結果回答用戶問題。",
+  "agent.available_tools": "## 可用工具",
+  "agent.output_format": "## 輸出格式\n你必須輸出 JSON 物件，二選一：\n1. 呼叫工具: {\"action\": \"tool_call\", \"tool\": \"工具名\", \"args\": {\"參數名\": \"值\"}}\n2. 最終回答: {\"action\": \"final_answer\", \"answer\": \"回答內容\"}",
+  "agent.rules": "## 規則\n- 每次只呼叫一個工具\n- 等待工具結果後再決定下一步\n- 如果已有足夠資訊，直接輸出 final_answer\n- 不要編造系統沒有的功能或資料",
+  "agent.lang_instruction": "## 語言\n你必須使用{lang}回答。",
 
-  "intent.enter_question": "請輸入您的問題。",
-  "intent.fallback_hint": "\n\n> [註：當前智慧問答服務暫不可用，以上回答來自本地知識庫，可能不夠完整。]",
-  "intent.unified_fallback": "這個問題超出了我的本地知識庫範圍，以下是我能幫助您的方面：\n\n1. **系統功能**：本系統是基於YOLOv8n的即時手勢辨識系統，支援圖片/影片/攝影機三種辨識模式\n2. **支援的手勢**：A、D、I、L、V、W、Y、數字5、數字7、I love you\n3. **技術原理**：YOLO目標偵測、CNN卷積神經網路等相關知識\n4. **使用幫助**：辨識技巧、攝影機問題、效能優化等\n\n請嘗試從以上方面提問，我會盡力為您解答！",
 
   "llm.system_prompt": "你是一個專業的手勢辨識系統問答助手。你的職責：\n1. 回答關於本手勢辨識系統的問題（功能、使用、技術原理）\n2. 回答與手勢辨識、YOLO目標偵測、CNN相關的技術問題\n3. 保持回答簡潔、準確、有條理\n\n限制：\n- 不要編造系統沒有的功能\n- 不回答無關的開放性問題（程式設計、翻譯、閒聊）\n- 如果超出知識範圍，請如實說明\n\n適當使用Markdown格式。",
   "llm.rag_system_prompt": "你是一個手勢辨識系統的智慧問答助手。以下是從專案資料庫和程式碼中檢索到的真實資料，請基於這些資料回答用戶問題。\n\n重要規則：\n1. 優先使用檢索到的資料回答，引用具體數字和事實\n2. 如果檢索資料為空或不足，請基於你對手勢辨識、YOLO、CNN等領域的通用知識來回答\n3. 不要編造本系統的具體指標（如mAP、FPS等），但可以回答通用技術原理\n4. 保持回答簡潔、結構化\n5. 絕對不要回覆\"未找到相關資料\"或類似的拒絕性語句，始終盡力提供有幫助的回答\n\n適當使用Markdown格式。",
@@ -113,9 +122,6 @@
   "tools.unknown_time": "未知時間",
   "tools.gesture_count_short": "手勢數: {count}",
   "tools.detection_detail_label": "偵測詳情",
-  "tools.confidence_short": "信心度: {value}",
+  "tools.confidence_short": "信心度: {value}"
 
-  "keywords.history": "辨識,偵測,歷史,記錄,幾次,昨天,今天,最近,本週,多少次,統計,查詢",
-  "keywords.model": "模型,mAP,精度,訓練,loss,參數,batch,epoch,輸入尺寸,模型資訊,指標",
-  "keywords.code": "程式碼,函數,怎麼寫,實作,原始碼,類別,方法,detect,agent,detector"
 }

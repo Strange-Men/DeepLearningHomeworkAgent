@@ -72,10 +72,19 @@
   "agent.default_response": "Sorry, I cannot understand your question.",
   "agent.try_these": "Try these questions:",
   "agent.input_related": "Please enter a related question, I'll do my best to answer!",
+  "agent.degradation_hint": "\n\n> [Note: The Q&A service is currently unavailable. The above answer is from the local knowledge base and may not be complete.]",
+  "agent.init_failed": "Q&A service initialization failed. Please check configuration.",
+  "agent.parse_retry_hint": "Your previous response was not valid JSON. Please respond with ONLY a JSON object in the specified format.",
+  "agent.loop_detected_hint": "You already have this result. Generate a final answer now.",
+  "agent.tool_not_found": "Tool \"{name}\" not found.",
+  "agent.tool_error": "Tool {name} execution error: {error}",
+  "agent.summary_prompt": "Based on the following collected information, generate a complete and concise answer.",
+  "agent.system_prompt": "You are a professional gesture recognition system assistant. You can call tools to query system data, then answer user questions based on the results.",
+  "agent.available_tools": "## Available Tools",
+  "agent.output_format": "## Output Format\nYou MUST output a JSON object, one of:\n1. Call tool: {\"action\": \"tool_call\", \"tool\": \"tool_name\", \"args\": {\"param\": \"value\"}}\n2. Final answer: {\"action\": \"final_answer\", \"answer\": \"your answer\"}",
+  "agent.rules": "## Rules\n- Call ONE tool at a time\n- Wait for tool result before deciding next step\n- If you have enough information, output final_answer directly\n- Do not fabricate features or data the system does not have",
+  "agent.lang_instruction": "## Language\nYou MUST respond in {lang}.",
 
-  "intent.enter_question": "Please enter your question.",
-  "intent.fallback_hint": "\n\n> [Note: The Q&A service is currently unavailable. The above answer is from the local knowledge base and may not be complete.]",
-  "intent.unified_fallback": "This question is beyond my local knowledge base. Here's what I can help you with:\n\n1. **System Features**: A real-time gesture recognition system based on YOLOv8n, supporting image/video/camera recognition modes\n2. **Supported Gestures**: A, D, I, L, V, W, Y, number 5, number 7, I love you\n3. **Technical Principles**: YOLO object detection, CNN convolutional neural networks, and related knowledge\n4. **Usage Help**: Recognition tips, camera issues, performance optimization\n\nPlease try asking from these aspects, I'll do my best to help!",
 
   "llm.system_prompt": "You are a professional gesture recognition system Q&A assistant. Your responsibilities:\n1. Answer questions about this gesture recognition system (features, usage, technical principles)\n2. Answer technical questions related to gesture recognition, YOLO object detection, and CNN\n3. Keep answers concise, accurate, and well-structured\n\nConstraints:\n- Do not fabricate features the system does not have\n- Do not answer unrelated open-ended questions (coding, translation, chitchat)\n- If a question is beyond your knowledge, say so honestly\n\nUse Markdown formatting when appropriate.",
   "llm.rag_system_prompt": "You are a gesture recognition system Q&A assistant. The following is real data retrieved from the project database and code. Please answer user questions based on this data.\n\nImportant rules:\n1. Prioritize retrieved data for answers, citing specific numbers and facts\n2. If retrieved data is empty or insufficient, answer from your general knowledge about gesture recognition, YOLO, CNN, and related topics\n3. Do not fabricate specific system metrics (mAP, FPS, etc.), but you may explain general technical principles\n4. Keep answers concise and structured\n5. NEVER respond with \"No relevant data found\" or similar refusal — always try to give a helpful answer\n\nUse Markdown formatting when appropriate.",
@@ -113,9 +122,6 @@
   "tools.unknown_time": "Unknown time",
   "tools.gesture_count_short": "gestures: {count}",
   "tools.detection_detail_label": "Detection details",
-  "tools.confidence_short": "confidence: {value}",
+  "tools.confidence_short": "confidence: {value}"
 
-  "keywords.history": "recognition,detection,history,record,times,yesterday,today,recent,week,count,statistics,query",
-  "keywords.model": "model,mAP,accuracy,training,loss,parameter,batch,epoch,input size,model info,metrics",
-  "keywords.code": "code,function,implementation,source,class,method,detect,agent,detector"
 }

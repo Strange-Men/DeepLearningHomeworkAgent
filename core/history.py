@@ -1,11 +1,14 @@
 """历史记录模块 - SQLite存储检测历史。"""
 
 import json
+import logging
 import sqlite3
 import os
 from datetime import datetime
 
 import config
+
+logger = logging.getLogger(__name__)
 
 
 class HistoryManager:
@@ -85,7 +88,7 @@ class HistoryManager:
                     os.remove(result_path)
                     file_deleted = True
                 except OSError as e:
-                    print(f"[WARNING] 删除文件失败 {result_path}: {e}")
+                    logger.warning("删除文件失败 %s: %s", result_path, e)
         conn = self._get_conn()
         conn.execute("DELETE FROM detection_history WHERE id = ?", (record_id,))
         conn.commit()
@@ -103,7 +106,7 @@ class HistoryManager:
                     os.remove(result_path)
                     deleted_count += 1
                 except OSError as e:
-                    print(f"[WARNING] 删除文件失败 {result_path}: {e}")
+                    logger.warning("删除文件失败 %s: %s", result_path, e)
         conn = self._get_conn()
         conn.execute("DELETE FROM detection_history")
         conn.execute("DELETE FROM sqlite_sequence WHERE name='detection_history'")

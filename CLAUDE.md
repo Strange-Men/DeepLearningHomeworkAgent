@@ -14,6 +14,8 @@
 | 前端框架 | Gradio | >= 4.0 |
 | 图像处理 | OpenCV | >= 4.8 |
 | 数据库 | SQLite | Python内置 |
+| LLM API | MiMo API (通过 LangChain ChatOpenAI 兼容接口调用) | langchain |
+| 文本检索 | LangChain + ChromaDB + sentence-transformers (all-MiniLM-L6-v2) | 最新稳定版 |
 | 代码规范 | flake8 + black | 最新稳定版 |
 
 ---
@@ -43,14 +45,33 @@
 
 ### 目录结构
 ```
-├── app.py              # 入口文件
+├── app.py              # Gradio UI 薄壳（仅布局+事件绑定）
 ├── config.py           # 全局配置
-├── core/               # 核心业务（detector/agent/history）
-├── data/               # 数据文件（知识库/数据库）
-├── utils/              # 工具函数
+├── core/               # 核心业务
+│   ├── agent.py        # AgentOrchestrator (Agent Loop) + GestureAgent (规则层降级)
+│   ├── llm.py          # LLM 通信层（MiMo API、重试、熔断）
+│   ├── tools.py        # 工具注册表 + 工具函数
+│   ├── retrieval.py    # 知识库检索（TF-IDF / 向量检索抽象接口）
+│   ├── rag_retriever.py # Chroma 向量 RAG 检索器（LangChain + sentence-transformers）
+│   ├── text_preprocessor.py  # 分词、去停用词
+│   ├── detector.py     # YOLOv8 手势检测
+│   ├── history.py      # SQLite 历史记录
+│   └── i18n.py         # 国际化
+├── data/               # 数据文件（知识库/数据库/词典）
+├── utils/              # 工具函数（图像/视频转换）
+├── tests/              # 测试用例
 ├── assets/             # 静态资源
 └── specs/              # 规格文档
 ```
+
+### Agent 架构（v3: LangChain ReAct Agent + Chroma RAG）
+- **Agent**: LangChain ReAct Agent，LLM 自主决策调用工具，循环直到生成 final_answer
+- **RAG 检索**: ChromaDB 向量数据库 + sentence-transformers (all-MiniLM-L6-v2) 嵌入
+- **四级降级链**: LangChain Agent → LLM纯回答 → TF-IDF规则层 → 默认兜底
+- **工具集**: LangChain Tool 封装（query_history, query_model_metrics, query_code, search_knowledge_base）
+- **快速路径**: 简单问题（打招呼、系统介绍等）在 Agent 入口预判，直接走 L2 纯 LLM 回答
+- **性能约束**: max_iterations=3, request_timeout=15s，简单问题 <10s，复杂问题 <30s
+- 详见 `AgentMaker.md`
 
 ### 命名规范
 - 文件名：小写下划线（`gesture_detector.py`）
@@ -67,6 +88,7 @@
 3. ❌ 不跳过异常处理
 4. ❌ 不硬编码路径和参数
 5. ❌ 不引入未经批准的新依赖
+   > 已批准：langchain, langchain-community, chromadb, sentence-transformers
 
 ---
 
